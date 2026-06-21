@@ -21,7 +21,10 @@ const fs = require('fs');
 
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
-  // log first set of three different exercises (Legs / Chest / Back) for richer insights
+  // SESSION 1 — log first set of three exercises (Legs / Chest / Back).
+  // Squat & Bench hit the top of their range (-> "add weight" next time),
+  // the Row falls short (-> "beat the reps" next time), so session 2's run
+  // screen shows both recommendation states.
   const fillLog = async (exIndex, reps, wt) => {
     const r = page.locator('.run-ex').nth(exIndex).locator('.set-row').first();
     await r.locator('[data-f="reps"]').fill(String(reps));
@@ -30,16 +33,24 @@ const fs = require('fs');
     await page.locator('#logbtn').click();
     await page.waitForTimeout(150);
   };
-  await fillLog(0, 12, 40); // Squat -> Legs
-  await fillLog(1, 10, 50); // Bench Press -> Chest
-  await fillLog(2, 10, 60); // Bent-Over Row -> Back
-  await page.waitForSelector('#rest-host .card');
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: __dirname + '/shots/3-run.png' });
+  await fillLog(0, 12, 40); // Squat -> Legs   (12 >= top 8  -> graduate weight)
+  await fillLog(1, 10, 50); // Bench Press     (10 >= top 8  -> graduate weight)
+  await fillLog(2, 10, 60); // Bent-Over Row   (10 <  top 12 -> hold, beat reps)
 
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row');
   await page.screenshot({ path: __dirname + '/shots/4-history.png' });
+
+  // SESSION 2 — start the same plan again; each card now shows a recommendation
+  // prefilled from session 1's performance.
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.run-ex .rec');
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: __dirname + '/shots/3-run.png' });
 
   await page.goto(BASE + '/#/insights');
   await page.waitForSelector('.stat-grid');

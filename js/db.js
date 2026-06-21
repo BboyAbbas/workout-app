@@ -50,10 +50,64 @@ export function newPlan() {
   return { id: uid(), name: '', createdAt: Date.now(), exercises: [] };
 }
 export function newExercise() {
-  return { id: uid(), name: '', sets: 3, reps: 10, weight: 0, rest: 90 };
+  // reps is a RANGE (repMin..repMax) so progression can use double-progression:
+  // push reps to the top of the range, then add weight. `reps` is kept = repMax
+  // for backward-compatibility with any older read paths.
+  return { id: uid(), name: '', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 };
 }
 
 export const DEFAULT_REST = 90; // seconds, used when an exercise has none set
+export const DEFAULT_INC = 2.5; // kg added when an exercise graduates the rep range
+
+/**
+ * The working rep range for an exercise. New exercises store repMin/repMax.
+ * Older plans only have a single `reps` target — derive a sensible window
+ * from it (roughly 70%..100% of the old target) so they progress too.
+ */
+export function repRange(e) {
+  let max = Number(e && e.repMax);
+  let min = Number(e && e.repMin);
+  const legacy = Number(e && e.reps);
+  if (!Number.isFinite(max) || max <= 0) max = (Number.isFinite(legacy) && legacy > 0) ? legacy : 12;
+  if (!Number.isFinite(min) || min <= 0) min = Math.max(1, Math.round(max * 0.7));
+  if (min > max) min = max;
+  return { min, max };
+}
+
+/**
+ * Double-progression recommendation for the NEXT session of one exercise.
+ * Given last session's logged sets [{reps, weight}], the rep range, and the
+ * weight increment, decide whether to add weight or chase more reps.
+ *
+ *  - all working sets hit the top of the range  -> add weight, reset to repMin
+ *  - otherwise                                  -> hold weight, beat the reps
+ *  - no history                                 -> first time, no number yet
+ *
+ * "Working sets" = the sets done at the heaviest weight used, so warm-up sets
+ * at a lighter weight don't block graduating. Returns {dir, weight, note}
+ * where dir is 'up' | 'hold' | 'first' and weight is the recommended load.
+ */
+export function recommendNext(lastSets, range, inc = DEFAULT_INC) {
+  const min = range.min, max = range.max;
+  const N = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  if (!lastSets || !lastSets.length) {
+    return { dir: 'first', weight: null,
+      note: `First time — find a weight you can do for ${min}–${max} reps.` };
+  }
+  const weights = lastSets.map((s) => N(s.weight)).filter((w) => w > 0);
+  const w = weights.length ? Math.max(...weights) : 0;
+  const working = w > 0 ? lastSets.filter((s) => N(s.weight) === w) : lastSets;
+  const hitTop = working.length > 0 && working.every((s) => N(s.reps) >= max);
+  if (w > 0 && hitTop) {
+    const nw = Math.round((w + inc) * 100) / 100;
+    return { dir: 'up', weight: nw,
+      note: `Add weight: ${w} → ${nw}kg. Reset to ${min} reps and build back up.` };
+  }
+  return { dir: 'hold', weight: w || null,
+    note: w
+      ? `Stay at ${w}kg — beat last time (goal: ${max} reps on every set).`
+      : `Aim for ${min}–${max} reps; add weight once you hit ${max} on all sets.` };
+}
 
 /* ---------- sessions (workout history) ---------- */
 export function getSessions() {
@@ -105,41 +159,41 @@ export const TEMPLATES = [
   {
     name: 'Full Body',
     exercises: [
-      { name: 'Squat', sets: 3, reps: 8, weight: 0 },
-      { name: 'Bench Press', sets: 3, reps: 8, weight: 0 },
-      { name: 'Bent-Over Row', sets: 3, reps: 10, weight: 0 },
-      { name: 'Overhead Press', sets: 3, reps: 10, weight: 0 },
-      { name: 'Plank (sec)', sets: 3, reps: 45, weight: 0 },
+      { name: 'Squat', sets: 3, repMin: 5, repMax: 8, reps: 8, weight: 0 },
+      { name: 'Bench Press', sets: 3, repMin: 5, repMax: 8, reps: 8, weight: 0 },
+      { name: 'Bent-Over Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Overhead Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Plank (sec)', sets: 3, repMin: 30, repMax: 60, reps: 60, weight: 0 },
     ],
   },
   {
     name: 'Push Day',
     exercises: [
-      { name: 'Bench Press', sets: 4, reps: 8, weight: 0 },
-      { name: 'Incline Dumbbell Press', sets: 3, reps: 10, weight: 0 },
-      { name: 'Overhead Press', sets: 3, reps: 10, weight: 0 },
-      { name: 'Lateral Raise', sets: 3, reps: 15, weight: 0 },
-      { name: 'Triceps Pushdown', sets: 3, reps: 12, weight: 0 },
+      { name: 'Bench Press', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
+      { name: 'Incline Dumbbell Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Overhead Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Lateral Raise', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Triceps Pushdown', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
     ],
   },
   {
     name: 'Pull Day',
     exercises: [
-      { name: 'Deadlift', sets: 3, reps: 5, weight: 0 },
-      { name: 'Pull-Up', sets: 3, reps: 8, weight: 0 },
-      { name: 'Barbell Row', sets: 3, reps: 10, weight: 0 },
-      { name: 'Face Pull', sets: 3, reps: 15, weight: 0 },
-      { name: 'Biceps Curl', sets: 3, reps: 12, weight: 0 },
+      { name: 'Deadlift', sets: 3, repMin: 3, repMax: 6, reps: 6, weight: 0 },
+      { name: 'Pull-Up', sets: 3, repMin: 5, repMax: 10, reps: 10, weight: 0 },
+      { name: 'Barbell Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Face Pull', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Biceps Curl', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
     ],
   },
   {
     name: 'Leg Day',
     exercises: [
-      { name: 'Squat', sets: 4, reps: 6, weight: 0 },
-      { name: 'Romanian Deadlift', sets: 3, reps: 10, weight: 0 },
-      { name: 'Leg Press', sets: 3, reps: 12, weight: 0 },
-      { name: 'Leg Curl', sets: 3, reps: 12, weight: 0 },
-      { name: 'Calf Raise', sets: 4, reps: 15, weight: 0 },
+      { name: 'Squat', sets: 4, repMin: 4, repMax: 8, reps: 8, weight: 0 },
+      { name: 'Romanian Deadlift', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Leg Press', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Leg Curl', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Calf Raise', sets: 4, repMin: 12, repMax: 20, reps: 20, weight: 0 },
     ],
   },
 ];

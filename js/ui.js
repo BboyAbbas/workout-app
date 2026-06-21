@@ -78,6 +78,8 @@ export const icons = {
   more: svg('<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>'),
   dumbbell: svg('<path d="M6.5 6.5l11 11M3 9l3-3 3 3-3 3zM15 15l3-3 3 3-3 3z"/>'),
   flame: svg('<path d="M12 2s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s1 2 2 2c0-3 2-5 2-8z"/>'),
+  up: svg('<path d="M3 17l6-6 4 4 7-7M14 8h6v6"/>'),
+  target: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'),
 };
 
 /** Transient toast message. */

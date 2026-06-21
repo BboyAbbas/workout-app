@@ -1,0 +1,8 @@
+{
+  "name": "workout-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tools/rec_test.mjs"
+  }
+}

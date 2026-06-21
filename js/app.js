@@ -153,11 +153,13 @@ function screenPlan(id) {
         : p.exercises.map((e) => {
             const lt = DB.lastEntryForExercise(e.id, e.name);
             const ltTxt = lt ? summariseSets(lt) : '';
+            const rng = DB.repRange(e);
+            const repTxt = rng.min === rng.max ? `${rng.max}` : `${rng.min}–${rng.max}`;
             return `
               <div class="card">
                 <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name || 'Exercise')}</p>
                 <p class="desc" style="margin:0;color:var(--muted)">
-                  Target ${e.sets}×${e.reps}${e.weight ? ` @ ${e.weight}` : ''}
+                  Target ${e.sets}×${repTxt}${e.weight ? ` @ ${e.weight}` : ''}
                   ${ltTxt ? ` · last <b style="color:var(--accent)">${esc(ltTxt)}</b>` : ''}
                 </p>
               </div>`;
@@ -196,7 +198,7 @@ function screenEditor(id) {
 
         <div class="section-label">Exercises</div>
         <div class="hint-cols" style="grid-template-columns:1fr;padding-left:2px">
-          <span style="text-align:left;color:var(--muted)">name · sets · reps · weight · rest(s)</span>
+          <span style="text-align:left;color:var(--muted)">name · sets · rep range · weight · rest(s)</span>
         </div>
         <div id="ex-list">
           ${plan.exercises.map((e, i) => exerciseRow(e, i)).join('')}
@@ -219,7 +221,14 @@ function screenEditor(id) {
         const i = +row.dataset.i;
         plan.exercises[i].name = row.querySelector('[data-f=name]').value;
         plan.exercises[i].sets = num(row.querySelector('[data-f=sets]').value, 1);
-        plan.exercises[i].reps = num(row.querySelector('[data-f=reps]').value, 0);
+        let lo = num(row.querySelector('[data-f=repMin]').value, 0);
+        let hi = num(row.querySelector('[data-f=repMax]').value, 0);
+        if (hi <= 0) hi = lo;            // only one filled -> single target
+        if (lo <= 0) lo = hi;
+        if (lo > hi) { const t = lo; lo = hi; hi = t; } // tolerate swapped entry
+        plan.exercises[i].repMin = lo;
+        plan.exercises[i].repMax = hi;
+        plan.exercises[i].reps = hi;     // keep legacy field = top of range
         plan.exercises[i].weight = num(row.querySelector('[data-f=weight]').value, 0);
         plan.exercises[i].rest = num(row.querySelector('[data-f=rest]').value, DB.DEFAULT_REST);
       });
@@ -259,15 +268,17 @@ function screenEditor(id) {
   }
 
   function exerciseRow(e, i) {
+    const rng = DB.repRange(e);
     return `
       <div class="ex-row" data-i="${i}">
         <div class="ex-row-head">
           <input class="input" data-f="name" placeholder="Exercise name" value="${esc(e.name)}" />
           <button class="icon-btn ex-del" data-i="${i}" aria-label="Remove">${icons.trash}</button>
         </div>
-        <div class="num-grid">
+        <div class="num-grid num-grid-4">
           <div class="field"><label>Sets</label><input class="input" data-f="sets" inputmode="numeric" value="${esc(e.sets)}" /></div>
-          <div class="field"><label>Reps</label><input class="input" data-f="reps" inputmode="numeric" value="${esc(e.reps)}" /></div>
+          <div class="field"><label>Rep min</label><input class="input" data-f="repMin" inputmode="numeric" value="${esc(rng.min)}" /></div>
+          <div class="field"><label>Rep max</label><input class="input" data-f="repMax" inputmode="numeric" value="${esc(rng.max)}" /></div>
           <div class="field"><label>Weight</label><input class="input" data-f="weight" inputmode="decimal" value="${esc(e.weight)}" /></div>
         </div>
         <div class="spacer"></div>
@@ -294,22 +305,37 @@ function startRun(planId) {
     return go('#/plan/' + existing.planId + '/run');
   }
 
-  // Build a fresh active session, prefilling each set's placeholder with
-  // last-time values so the user only changes what differs.
+  // Build a fresh active session. Each set is prefilled with a double-progression
+  // recommendation off last time's performance: hit the top of the rep range on
+  // every set -> the weight goes up and reps reset to the bottom; otherwise the
+  // weight holds and the target is to beat last time's reps.
   const entries = {};
   for (const e of plan.exercises) {
     const last = DB.lastEntryForExercise(e.id, e.name) || [];
+    const range = DB.repRange(e);
+    const rec = DB.recommendNext(last.length ? last : null, range);
+    const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => {
+      if (rec.dir === 'up') {
+        return { reps: range.min, weight: rec.weight, done: false };
+      }
+      if (rec.dir === 'hold') {
+        const lr = Number(last[i]?.reps);
+        const reps = Number.isFinite(lr) && lr > 0 ? Math.min(range.max, lr + 1) : range.min;
+        const weight = rec.weight ?? last[i]?.weight ?? (e.weight || '');
+        return { reps, weight, done: false };
+      }
+      return { reps: '', weight: e.weight || '', done: false }; // first time
+    });
     entries[e.id] = {
       exerciseId: e.id,
       name: e.name,
       rest: e.rest ?? DB.DEFAULT_REST,
       targetSets: e.sets,
-      targetReps: e.reps,
-      sets: Array.from({ length: Math.max(1, e.sets) }, (_, i) => ({
-        reps: last[i]?.reps ?? '',
-        weight: last[i]?.weight ?? (e.weight || ''),
-        done: false,
-      })),
+      targetReps: range.max,
+      repMin: range.min,
+      repMax: range.max,
+      rec: { dir: rec.dir, note: rec.note },
+      sets,
     };
   }
   DB.setActive({ planId, planName: plan.name, startedAt: Date.now(), entries });
@@ -372,10 +398,14 @@ function screenRun(planId) {
           <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" />
         </div>`;
       }).join('');
+      const recHtml = en.rec
+        ? `<p class="rec rec-${en.rec.dir}">${en.rec.dir === 'up' ? icons.up : icons.target} ${esc(en.rec.note)}</p>`
+        : '';
       return `
         <div class="card run-ex">
           <p class="name">${esc(en.name)}</p>
           <p class="lasttime">Last time: <b>${esc(lastTxt)}</b></p>
+          ${recHtml}
           <div class="hint-cols"><span>#</span><span>Reps</span><span>Weight</span></div>
           ${rows}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>

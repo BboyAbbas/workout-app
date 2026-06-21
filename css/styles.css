@@ -156,8 +156,11 @@ input, select { font-family: inherit; }
 
 /* number trio for exercise rows */
 .num-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.num-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
 .num-grid .field { margin-bottom: 0; }
 .num-grid .input { text-align: center; padding: 12px 6px; }
+.num-grid-4 .input { padding: 12px 4px; }
+.num-grid-4 label { font-size: 11px; white-space: nowrap; }
 
 /* ---------- Exercise editor rows ---------- */
 .ex-row {
@@ -190,10 +193,20 @@ input, select { font-family: inherit; }
 .run-ex { margin-bottom: 14px; }
 .run-ex .name { font-size: 17px; font-weight: 650; margin: 0 0 2px; }
 .run-ex .lasttime {
-  font-size: 13px; color: var(--muted); margin: 0 0 12px;
+  font-size: 13px; color: var(--muted); margin: 0 0 4px;
   display: flex; align-items: center; gap: 6px;
 }
 .run-ex .lasttime b { color: var(--accent); font-weight: 650; }
+
+/* double-progression recommendation line */
+.run-ex .rec {
+  font-size: 13px; margin: 0 0 12px; font-weight: 600;
+  display: flex; align-items: flex-start; gap: 6px; line-height: 1.35;
+}
+.run-ex .rec svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.run-ex .rec-up { color: var(--accent); }
+.run-ex .rec-hold { color: var(--text); }
+.run-ex .rec-first { color: var(--muted); font-weight: 500; }
 
 .set-row {
   display: grid;
