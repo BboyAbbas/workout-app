@@ -95,6 +95,14 @@ function check(cond, msg) {
   const lastTxt = await page.locator('.lasttime').first().textContent();
   check(/10/.test(lastTxt), `last-time shows previous reps (${lastTxt.trim()})`);
 
+  console.log('\n[7b] Insights page');
+  await page.goto(BASE + '/#/insights');
+  await page.waitForSelector('.stat-grid', { timeout: 4000 });
+  check((await page.locator('.stat-grid .stat').count()) >= 4, 'insights stat cards render');
+  check((await page.locator('.mbar').count()) >= 1, 'muscle focus bars render');
+  const muscleTxt = (await page.locator('.mbar-top').first().textContent()) || '';
+  check(/Legs|Back|Chest|Shoulders|Arms|Core|Other/.test(muscleTxt), `muscle group shown (${muscleTxt.trim()})`);
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

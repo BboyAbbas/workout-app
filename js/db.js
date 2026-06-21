@@ -154,6 +154,23 @@ export function planFromTemplate(tpl) {
   };
 }
 
+/* ---------- muscle grouping (for insights) ---------- */
+// Inferred from the exercise name — zero tagging needed. Order matters:
+// more specific phrases are checked before generic ones.
+export const MUSCLES = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Other'];
+
+export function muscleFor(name) {
+  const n = ' ' + String(name || '').toLowerCase() + ' ';
+  const has = (...k) => k.some((x) => n.includes(x));
+  if (has('plank', 'crunch', 'sit-up', 'situp', 'ab ', 'abs', 'leg raise', 'knee raise', 'russian twist', 'hollow', 'oblique')) return 'Core';
+  if (has('upright row', 'overhead press', 'ohp', 'shoulder', 'lateral raise', 'military', 'arnold', 'rear delt', 'shrug')) return 'Shoulders';
+  if (has('leg press', 'leg curl', 'leg extension', 'squat', 'lunge', 'calf', 'romanian', 'rdl', 'hip thrust', 'glute', 'hamstring', 'quad', 'step-up', 'step up')) return 'Legs';
+  if (has('bench', 'chest', 'fly', 'flye', 'push-up', 'push up', 'pushup', 'dip', 'pec')) return 'Chest';
+  if (has('row', 'pull-up', 'pull up', 'pullup', 'pulldown', 'lat ', 'lat-', 'chin', 'face pull', 'deadlift', 'back extension')) return 'Back';
+  if (has('curl', 'tricep', 'triceps', 'pushdown', 'bicep', 'biceps', 'skull', 'hammer', 'preacher', 'kickback', 'forearm')) return 'Arms';
+  return 'Other';
+}
+
 /* ---------- export / import (backup) ---------- */
 export function exportAll() {
   return JSON.stringify(

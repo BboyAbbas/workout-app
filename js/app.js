@@ -6,7 +6,7 @@
 
 import * as DB from './db.js';
 import {
-  esc, fmtClock, fmtDuration, fmtDate, fmtTime,
+  esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
   icons, toast, summariseSets,
 } from './ui.js';
 
@@ -103,7 +103,9 @@ function screenHome() {
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
-      right: `<button class="icon-btn" data-nav="#/history" aria-label="History">${icons.history}</button>`,
+      right: `
+        <button class="icon-btn" data-nav="#/insights" aria-label="Insights">${icons.chart}</button>
+        <button class="icon-btn" data-nav="#/history" aria-label="History">${icons.history}</button>`,
     })}
     <main class="screen">
       ${resumeBar}
@@ -641,6 +643,116 @@ function screenSession(sessionId) {
 }
 
 /* ============================================================
+   SCREEN: Insights — overview of everything logged
+   ============================================================ */
+function screenInsights() {
+  const sessions = DB.getSessions(); // newest first
+
+  if (!sessions.length) {
+    mount(`
+      ${topbar('Insights', { back: '#/' })}
+      <main class="screen">
+        <div class="empty"><div class="big">${icons.chart}</div>
+        <p>Finish a workout and your stats show up here.</p></div>
+      </main>`);
+    return;
+  }
+
+  const n = sessions.length;
+  const totalSec = sessions.reduce((a, s) => a + (s.durationSec || 0), 0);
+  const avgSec = totalSec / n;
+  const longest = Math.max(...sessions.map((s) => s.durationSec || 0));
+
+  const startOfDay = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+  const todayStart = startOfDay(Date.now());
+  const dow = (new Date().getDay() + 6) % 7;           // 0 = Monday
+  const weekStart = todayStart - dow * 86400000;
+  const weekCount = sessions.filter((s) => s.startedAt >= weekStart).length;
+
+  // current day-streak (counts today, or starts at yesterday if today is a rest day)
+  const daySet = new Set(sessions.map((s) => startOfDay(s.startedAt)));
+  let streak = 0, day = todayStart;
+  if (!daySet.has(day)) day -= 86400000;
+  while (daySet.has(day)) { streak++; day -= 86400000; }
+
+  // volume / reps / sets-per-muscle / time-of-day
+  let volume = 0, reps = 0, totalSets = 0;
+  const muscle = {};
+  const buckets = { Morning: 0, Afternoon: 0, Evening: 0, Night: 0 };
+  for (const s of sessions) {
+    const h = new Date(s.startedAt).getHours();
+    const b = h >= 5 && h < 12 ? 'Morning' : h >= 12 && h < 17 ? 'Afternoon' : h >= 17 && h < 22 ? 'Evening' : 'Night';
+    buckets[b]++;
+    for (const e of s.entries) {
+      const m = DB.muscleFor(e.name);
+      for (const set of e.sets) {
+        reps += +set.reps || 0;
+        volume += (+set.reps || 0) * (+set.weight || 0);
+        muscle[m] = (muscle[m] || 0) + 1;
+        totalSets++;
+      }
+    }
+  }
+  const usualTime = Object.entries(buckets).sort((a, b) => b[1] - a[1])[0][0];
+  const muscleRows = Object.entries(muscle).sort((a, b) => b[1] - a[1]);
+  const maxM = muscleRows.length ? muscleRows[0][1] : 1;
+
+  const stat = (label, value) =>
+    `<div class="card stat"><div class="stat-v">${value}</div><div class="stat-l">${label}</div></div>`;
+
+  mount(`
+    ${topbar('Insights', { back: '#/', sub: `${n} workout${n > 1 ? 's' : ''} logged` })}
+    <main class="screen">
+      <div class="stat-grid">
+        ${stat('Workouts', n)}
+        ${stat('This week', weekCount)}
+        ${stat('Day streak', streak)}
+        ${stat('Total time', fmtDuration(totalSec))}
+      </div>
+
+      <div class="section-label">Volume lifted</div>
+      <div class="card">
+        <div class="stat-v" style="font-size:30px">${fmtInt(volume)} <span style="font-size:16px;color:var(--muted)">kg total</span></div>
+        <div class="stat-l">${fmtInt(reps)} reps · ${totalSets} sets across all workouts</div>
+      </div>
+
+      <div class="section-label">Muscle focus (by sets)</div>
+      <div class="card">
+        ${muscleRows.map(([m, c]) => {
+          const pct = Math.round((c / totalSets) * 100);
+          return `
+          <div class="mbar">
+            <div class="mbar-top"><span>${m}</span><span>${c} set${c === 1 ? '' : 's'} · ${pct}%</span></div>
+            <div class="mbar-track"><div class="mbar-fill" style="width:${Math.max(4, (c / maxM) * 100)}%"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="section-label">Patterns</div>
+      <div class="card">
+        <div class="kv"><span>Usual training time</span><b>${usualTime}</b></div>
+        <div class="kv"><span>Average session</span><b>${fmtDuration(avgSec)}</b></div>
+        <div class="kv"><span>Longest session</span><b>${fmtDuration(longest)}</b></div>
+      </div>
+
+      <div class="section-label">Recent</div>
+      ${sessions.slice(0, 5).map((s) => `
+        <div class="card hist-row tappable" data-session="${s.id}">
+          <div class="when">
+            <p class="date">${esc(fmtDate(s.startedAt))} · ${esc(s.planName || '')}</p>
+            <p class="summary">${fmtTime(s.startedAt)} · ${s.entries.length} exercises</p>
+          </div>
+          <div class="dur">${fmtDuration(s.durationSec)}</div>
+        </div>`).join('')}
+      <div class="spacer"></div>
+    </main>
+  `);
+
+  qsa('[data-session]').forEach((c) =>
+    c.addEventListener('click', () => go('#/session/' + c.dataset.session)));
+}
+
+/* ============================================================
    Router
    ============================================================ */
 function router() {
@@ -650,6 +762,7 @@ function router() {
 
   if (hash === '#/' || hash === '' || hash === '#') return screenHome();
   if (parts[0] === 'history') return screenHistory(null);
+  if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'session') return screenSession(parts[1]);
   if (parts[0] === 'plan') {
     if (parts[1] === 'new') return screenEditor('new');

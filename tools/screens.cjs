@@ -21,10 +21,18 @@ const fs = require('fs');
 
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
-  const row = page.locator('.set-row').first();
-  await row.locator('[data-f="reps"]').fill('12');
-  await row.locator('[data-f="weight"]').fill('40');
-  await page.locator('#logbtn').click();
+  // log first set of three different exercises (Legs / Chest / Back) for richer insights
+  const fillLog = async (exIndex, reps, wt) => {
+    const r = page.locator('.run-ex').nth(exIndex).locator('.set-row').first();
+    await r.locator('[data-f="reps"]').fill(String(reps));
+    await r.locator('[data-f="weight"]').fill(String(wt));
+    await r.locator('[data-f="reps"]').click(); // focus -> selects this set
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(150);
+  };
+  await fillLog(0, 12, 40); // Squat -> Legs
+  await fillLog(1, 10, 50); // Bench Press -> Chest
+  await fillLog(2, 10, 60); // Bent-Over Row -> Back
   await page.waitForSelector('#rest-host .card');
   await page.waitForTimeout(300);
   await page.screenshot({ path: __dirname + '/shots/3-run.png' });
@@ -32,6 +40,10 @@ const fs = require('fs');
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row');
   await page.screenshot({ path: __dirname + '/shots/4-history.png' });
+
+  await page.goto(BASE + '/#/insights');
+  await page.waitForSelector('.stat-grid');
+  await page.screenshot({ path: __dirname + '/shots/6-insights.png', fullPage: true });
 
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
