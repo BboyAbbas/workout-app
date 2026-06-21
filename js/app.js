@@ -313,7 +313,7 @@ function startRun(planId) {
   for (const e of plan.exercises) {
     const last = DB.lastEntryForExercise(e.id, e.name) || [];
     const range = DB.repRange(e);
-    const rec = DB.recommendNext(last.length ? last : null, range);
+    const rec = DB.recommendNext(last.length ? last : null, range, DB.DEFAULT_INC, e.sets);
     const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => {
       if (rec.dir === 'up') {
         return { reps: range.min, weight: rec.weight, done: false };
@@ -345,8 +345,10 @@ function startRun(planId) {
 function screenRun(planId) {
   let active = DB.getActive();
   if (!active || active.planId !== planId) return go('#/plan/' + planId);
-  const order = DB.getPlan(planId)?.exercises.map((e) => e.id)
-    || Object.keys(active.entries);
+  // Iterate the workout's OWN snapshot, not the live plan. Editing the plan
+  // mid-workout (add/remove/rename an exercise) must never drop or blank the
+  // sets already logged in this session.
+  const order = Object.keys(active.entries);
 
   // rest-timer state lives outside the DOM so re-renders don't kill it
   const rest = { id: null, remaining: 0, total: 0, exId: null };

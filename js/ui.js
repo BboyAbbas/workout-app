@@ -27,8 +27,10 @@ export function fmtClock(totalSec) {
 export function fmtDuration(totalSec) {
   const s = Math.max(0, Math.floor(totalSec));
   if (s < 60) return `${s}s`;
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  // round to whole minutes FIRST, then split, so 7199s -> "2h 00m" (not "1h 60m")
+  const totalMin = Math.round(s / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
   if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
   return `${m}m`;
 }
@@ -95,13 +97,22 @@ export function toast(msg) {
   toastTimer = setTimeout(() => el.remove(), 1900);
 }
 
-/** Summarise a set list as "3×10 @ 20" style text. */
+/** Summarise a set list as "3×10 @ 20" style text. Falls back to a per-set
+ *  list ("10@60, 10@60, 8@70") when reps OR weights differ across sets, so a
+ *  mixed-weight session isn't misreported as all one weight. */
 export function summariseSets(sets) {
   if (!sets || !sets.length) return '';
-  const reps = sets.map((s) => s.reps).filter((r) => r != null && r !== '');
-  if (!reps.length) return '';
-  const allSame = reps.every((r) => r === reps[0]);
-  const w = sets.find((s) => s.weight)?.weight;
-  const repPart = allSame ? `${reps.length}×${reps[0]}` : reps.join('/');
-  return w ? `${repPart} @ ${w}` : repPart;
+  const done = sets.filter((s) => s.reps != null && s.reps !== '');
+  if (!done.length) return '';
+  const reps = done.map((s) => s.reps);
+  const weights = done.map((s) => s.weight).filter((w) => w != null && w !== '' && +w > 0);
+  const sameReps = reps.every((r) => r === reps[0]);
+  const sameWeight = weights.length === 0 || weights.every((w) => +w === +weights[0]);
+  if (sameReps && sameWeight) {
+    const w = weights[0];
+    return w ? `${reps.length}×${reps[0]} @ ${w}` : `${reps.length}×${reps[0]}`;
+  }
+  return done
+    .map((s) => (s.weight && +s.weight > 0 ? `${s.reps}@${s.weight}` : `${s.reps}`))
+    .join(', ');
 }

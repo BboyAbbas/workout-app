@@ -84,6 +84,39 @@ console.log('recommendNext — custom increment:');
   eq('weight = +5', r.weight, 105);
 }
 
+console.log('recommendNext — needs ALL planned sets at top to graduate:');
+{
+  // only 1 of 3 planned sets logged at top -> must NOT bump the weight
+  const one = recommendNext([{ reps: 12, weight: 100 }], { min: 8, max: 12 }, 2.5, 3);
+  eq('1/3 sets -> hold', one.dir, 'hold');
+  eq('1/3 weight held', one.weight, 100);
+  // 2 of 3 -> still hold
+  const two = recommendNext([{ reps: 12, weight: 100 }, { reps: 12, weight: 100 }], { min: 8, max: 12 }, 2.5, 3);
+  eq('2/3 sets -> hold', two.dir, 'hold');
+  // all 3 -> graduate
+  const three = recommendNext(
+    [{ reps: 12, weight: 100 }, { reps: 12, weight: 100 }, { reps: 12, weight: 100 }],
+    { min: 8, max: 12 }, 2.5, 3);
+  eq('3/3 sets -> up', three.dir, 'up');
+  eq('3/3 weight +2.5', three.weight, 102.5);
+}
+
+console.log('recommendNext — bodyweight maxed (no load to add):');
+{
+  const last = [{ reps: 10, weight: 0 }, { reps: 10, weight: 0 }, { reps: 10, weight: 0 }];
+  const r = recommendNext(last, { min: 5, max: 10 }, 2.5, 3);
+  eq('dir', r.dir, 'hold');
+  eq('weight', r.weight, null);
+  ok('note mentions bodyweight/resistance', /bodyweight|resistance/i.test(r.note));
+}
+
+console.log('recommendNext — bodyweight not yet maxed:');
+{
+  const r = recommendNext([{ reps: 7, weight: 0 }], { min: 5, max: 10 }, 2.5, 3);
+  eq('dir', r.dir, 'hold');
+  ok('note says aim', /aim/i.test(r.note));
+}
+
 console.log('DEFAULT_INC is 2.5:');
 eq('inc', DEFAULT_INC, 2.5);
 

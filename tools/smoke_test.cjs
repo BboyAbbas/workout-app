@@ -142,6 +142,44 @@ function check(cond, msg) {
   const s2 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
   check(s2.length === 1, `unlogged workout saved nothing (sessions still ${s2.length}, expected 1)`);
 
+  console.log('\n[7d] Editing the plan mid-workout does NOT drop logged sets');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="0"]');
+  await page.locator('[data-tpl="0"]').click();          // Full Body (Squat..Row..)
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  const logEx = async (i) => {
+    const r = page.locator('.run-ex').nth(i).locator('.set-row').first();
+    await r.locator('[data-f="weight"]').fill('50');
+    await r.locator('[data-f="reps"]').fill('10');
+    await r.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+  };
+  await logEx(0); // Squat
+  await logEx(2); // Bent-Over Row
+  // remove "Bent-Over Row" from the plan while the workout is active
+  await page.evaluate(() => {
+    const pl = JSON.parse(localStorage.getItem('wt_plans_v1'));
+    pl[0].exercises = pl[0].exercises.filter((e) => e.name !== 'Bent-Over Row');
+    localStorage.setItem('wt_plans_v1', JSON.stringify(pl));
+  });
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.run-ex');
+  await page.locator('#finish').click();
+  await page.waitForTimeout(200);
+  const sd = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
+  const savedNames = sd[0] ? sd[0].entries.map((e) => e.name) : [];
+  check(savedNames.includes('Squat') && savedNames.includes('Bent-Over Row'),
+    `both logged exercises saved despite plan edit (${savedNames.join(',')})`);
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

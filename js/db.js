@@ -87,7 +87,7 @@ export function repRange(e) {
  * at a lighter weight don't block graduating. Returns {dir, weight, note}
  * where dir is 'up' | 'hold' | 'first' and weight is the recommended load.
  */
-export function recommendNext(lastSets, range, inc = DEFAULT_INC) {
+export function recommendNext(lastSets, range, inc = DEFAULT_INC, targetSets = 1) {
   const min = range.min, max = range.max;
   const N = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   if (!lastSets || !lastSets.length) {
@@ -96,17 +96,28 @@ export function recommendNext(lastSets, range, inc = DEFAULT_INC) {
   }
   const weights = lastSets.map((s) => N(s.weight)).filter((w) => w > 0);
   const w = weights.length ? Math.max(...weights) : 0;
-  const working = w > 0 ? lastSets.filter((s) => N(s.weight) === w) : lastSets;
-  const hitTop = working.length > 0 && working.every((s) => N(s.reps) >= max);
-  if (w > 0 && hitTop) {
+  // sets done at the top working weight — warm-up sets at a lighter weight don't
+  // count toward graduating (bodyweight: every set, since they're all weight 0).
+  const topWorking = w > 0 ? lastSets.filter((s) => N(s.weight) === w) : lastSets;
+  const need = Math.max(1, targetSets);
+  // Graduate only after completing ALL planned sets at the top of the range, at
+  // the top weight — so a single logged set (or a partial session) won't bump.
+  const hitTop = topWorking.length >= need && topWorking.every((s) => N(s.reps) >= max);
+  if (hitTop && w > 0) {
     const nw = Math.round((w + inc) * 100) / 100;
     return { dir: 'up', weight: nw,
       note: `Add weight: ${w} → ${nw}kg. Reset to ${min} reps and build back up.` };
   }
+  if (hitTop && w === 0) {
+    // Bodyweight movement that maxed the range — no load to add, so progress reps
+    // or external resistance instead of being stuck on the same "hit max" message.
+    return { dir: 'hold', weight: null,
+      note: `You maxed ${max} reps at bodyweight — add a rep, or some resistance (band/plate).` };
+  }
   return { dir: 'hold', weight: w || null,
     note: w
       ? `Stay at ${w}kg — beat last time (goal: ${max} reps on every set).`
-      : `Aim for ${min}–${max} reps; add weight once you hit ${max} on all sets.` };
+      : `Aim for ${min}–${max} reps; add weight or resistance once you hit ${max} on all sets.` };
 }
 
 /* ---------- sessions (workout history) ---------- */
@@ -234,7 +245,14 @@ export function exportAll() {
   );
 }
 export function importAll(json) {
-  const data = JSON.parse(json);
-  if (data.plans) write(KEY_PLANS, data.plans);
-  if (data.sessions) write(KEY_SESSIONS, data.sessions);
+  const data = typeof json === 'string' ? JSON.parse(json) : json;
+  if (!data || typeof data !== 'object') throw new Error('Invalid backup file');
+  // Only accept well-formed records so a bad/old backup can't brick the app:
+  // every screen assumes plans have an exercises[] and sessions have an entries[].
+  const plans = Array.isArray(data.plans)
+    ? data.plans.filter((p) => p && Array.isArray(p.exercises)) : [];
+  const sessions = Array.isArray(data.sessions)
+    ? data.sessions.filter((s) => s && Array.isArray(s.entries)) : [];
+  if (plans.length) write(KEY_PLANS, plans);
+  if (sessions.length) write(KEY_SESSIONS, sessions);
 }
