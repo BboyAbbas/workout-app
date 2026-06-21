@@ -42,8 +42,11 @@ function check(cond, msg) {
 
   console.log('\n[2] Add a template plan');
   await page.locator('[data-tpl="0"]').click();
+  await page.waitForSelector('#tpl-add');                 // preview, NOT auto-added
+  check(/#\/template\//.test(page.url()), 'template opens a preview (not auto-added)');
+  await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
-  check(/#\/plan\//.test(page.url()), 'navigated to plan detail');
+  check(/#\/plan\//.test(page.url()), 'navigated to plan detail after adding');
   check(await page.getByText('Start workout').isVisible(), 'Start workout button present');
 
   console.log('\n[3] Shorten rest to 2s via editor');
@@ -110,6 +113,7 @@ function check(cond, msg) {
   await page.reload();
   await page.waitForSelector('[data-tpl="0"]');
   await page.locator('[data-tpl="0"]').click();          // Full Body
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   // session 1: log ONLY the first exercise (Squat), finish
   await page.locator('[data-run]').click();
@@ -148,6 +152,7 @@ function check(cond, msg) {
   await page.reload();
   await page.waitForSelector('[data-tpl="0"]');
   await page.locator('[data-tpl="0"]').click();          // Full Body (Squat..Row..)
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');

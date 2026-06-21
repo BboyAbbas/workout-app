@@ -57,7 +57,7 @@ function screenHome() {
         <div class="card plan-card tappable" data-tpl="${i}">
           <div class="meta">
             <p class="name">${esc(t.name)}</p>
-            <p class="desc">${t.exercises.length} exercises · tap to add</p>
+            <p class="desc">${t.exercises.length} exercises · tap to preview</p>
           </div>
           <button class="icon-btn" aria-label="Add">${icons.plus}</button>
         </div>`).join('')}
@@ -123,14 +123,43 @@ function screenHome() {
   qsa('[data-run]').forEach((b) =>
     b.addEventListener('click', (e) => { e.stopPropagation(); startRun(b.dataset.run); }));
   qsa('[data-tpl]').forEach((c) =>
-    c.addEventListener('click', () => {
-      const plan = DB.planFromTemplate(DB.TEMPLATES[+c.dataset.tpl]);
-      DB.savePlan(plan);
-      toast('Plan added');
-      go('#/plan/' + plan.id);
-    }));
+    c.addEventListener('click', () => go('#/template/' + c.dataset.tpl)));
   const r = qs('[data-resume]');
   if (r) r.addEventListener('click', () => go('#/plan/' + active.planId + '/run'));
+}
+
+/* ============================================================
+   SCREEN: Template preview — look before adding
+   ============================================================ */
+function screenTemplate(i) {
+  const tpl = DB.TEMPLATES[+i];
+  if (!tpl) return go('#/');
+
+  mount(`
+    ${topbar(tpl.name, { back: '#/', sub: `${tpl.exercises.length} exercises · template` })}
+    <main class="screen">
+      <p class="desc" style="color:var(--muted);margin:0 0 6px">Preview — nothing is added until you tap below.</p>
+      ${tpl.exercises.map((e) => {
+        const rng = DB.repRange(e);
+        const repTxt = rng.min === rng.max ? `${rng.max}` : `${rng.min}–${rng.max}`;
+        return `
+          <div class="card">
+            <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name)}</p>
+            <p class="desc" style="margin:0;color:var(--muted)">Target ${e.sets}×${repTxt}</p>
+          </div>`;
+      }).join('')}
+      <div class="spacer"></div>
+      <button class="btn btn-primary btn-block" id="tpl-add">${icons.plus} Add to my plans</button>
+      <div class="spacer"></div>
+    </main>
+  `);
+
+  qs('#tpl-add').addEventListener('click', () => {
+    const plan = DB.planFromTemplate(tpl);
+    DB.savePlan(plan);
+    toast('Plan added');
+    go('#/plan/' + plan.id);
+  });
 }
 
 /* ============================================================
@@ -799,6 +828,7 @@ function router() {
   if (parts[0] === 'history') return screenHistory(null);
   if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'session') return screenSession(parts[1]);
+  if (parts[0] === 'template') return screenTemplate(parts[1]);
   if (parts[0] === 'plan') {
     if (parts[1] === 'new') return screenEditor('new');
     const id = parts[1];

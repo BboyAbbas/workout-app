@@ -15,7 +15,8 @@ const fs = require('fs');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();           // Full Body
+  await page.locator('[data-tpl="0"]').click();           // Full Body (preview)
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   await page.screenshot({ path: __dirname + '/shots/2-plan.png' });
 

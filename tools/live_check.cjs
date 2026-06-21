@@ -44,6 +44,7 @@ const check = (c, m) => { console.log((c ? '  PASS: ' : '  FAIL: ') + m); if (!c
   await page.evaluate(() => localStorage.clear());
   await page.reload(); await page.waitForSelector('[data-tpl="0"]');
   await page.locator('[data-tpl="0"]').click();
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
