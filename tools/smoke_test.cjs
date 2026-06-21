@@ -185,6 +185,51 @@ function check(cond, msg) {
   check(savedNames.includes('Squat') && savedNames.includes('Bent-Over Row'),
     `both logged exercises saved despite plan edit (${savedNames.join(',')})`);
 
+  console.log('\n[7e] Insights extras (calendar/records), exercise chart, PR toast');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="0"]');
+  await page.locator('[data-tpl="0"]').click();
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('[data-run]');
+  const logSquat = async (wt, rp) => {
+    const row = page.locator('.run-ex').nth(0).locator('.set-row').first();
+    await row.locator('[data-f="weight"]').fill(String(wt));
+    await row.locator('[data-f="reps"]').fill(String(rp));
+    await row.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+  };
+  // session 1: Squat 60x10
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  await logSquat(60, 10);
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row');
+  // session 2: Squat 70x10 -> beats est-1RM -> PR toast
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  await logSquat(70, 10);
+  await page.locator('#finish').click();
+  const prToast = await page.waitForSelector('.toast', { timeout: 2500 }).then((h) => h.textContent()).catch(() => '');
+  check(/PR/i.test(prToast || ''), `PR toast fires on a new record (${(prToast || '').trim()})`);
+  await page.waitForSelector('.hist-row');
+  // insights extras
+  await page.goto(BASE + '/#/insights');
+  await page.waitForSelector('.stat-grid');
+  check((await page.locator('.cal .cal-cell').count()) >= 7, 'consistency calendar renders');
+  check((await page.locator('[data-ex]').count()) >= 1, 'strength records list renders');
+  // exercise progress screen
+  await page.locator('[data-ex]').first().click();
+  await page.waitForSelector('.spark');
+  check((await page.locator('.spark polyline').count()) === 1, 'exercise progress chart renders');
+  check(/#\/exercise\//.test(page.url()), 'navigated to exercise progress screen');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

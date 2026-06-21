@@ -156,6 +156,105 @@ export function lastEntryForExercise(exerciseId, exerciseName) {
   return null;
 }
 
+/* ---------- progress / records / stalls (insights) ---------- */
+
+/** Epley estimated 1-rep-max. 0 for bodyweight (no external load to estimate from). */
+export function est1RM(weight, reps) {
+  const w = Number(weight), r = Number(reps);
+  if (!Number.isFinite(w) || !Number.isFinite(r) || w <= 0 || r <= 0) return 0;
+  return Math.round(w * (1 + r / 30));
+}
+
+/**
+ * Per-session progress for ONE exercise (matched by name, case-insensitive),
+ * OLDEST first. Each point summarises that session's best effort.
+ */
+export function progressForExercise(name) {
+  const key = String(name || '').toLowerCase();
+  const points = [];
+  for (const s of [...getSessions()].reverse()) { // getSessions is newest-first
+    const entry = (s.entries || []).find((e) => (e.name || '').toLowerCase() === key);
+    if (!entry || !entry.sets || !entry.sets.length) continue;
+    let topWeight = 0, topReps = 0, bestE = 0, volume = 0;
+    for (const set of entry.sets) {
+      const w = Number(set.weight) || 0, r = Number(set.reps) || 0;
+      if (w > topWeight) topWeight = w;
+      if (r > topReps) topReps = r;
+      bestE = Math.max(bestE, est1RM(w, r));
+      volume += w * r;
+    }
+    points.push({ t: s.startedAt, topWeight, topReps, e1rm: bestE, volume });
+  }
+  return points;
+}
+
+/** The metric to chart/track: est-1RM if the exercise is ever loaded, else top reps. */
+export function progressMetric(points) {
+  const loaded = points.some((p) => p.e1rm > 0);
+  return {
+    loaded,
+    label: loaded ? 'Est. 1RM' : 'Top reps',
+    unit: loaded ? 'kg' : 'reps',
+    values: points.map((p) => (loaded ? p.e1rm : p.topReps)),
+  };
+}
+
+/** Stalled = ≥4 tracked sessions and the best result is OLDER than the last 3. */
+export function isStalled(values) {
+  if (!values || values.length < 4) return false;
+  const peak = Math.max(...values);
+  const recentPeak = Math.max(...values.slice(-3));
+  return recentPeak < peak;
+}
+
+/** One row per exercise with logged history (Records + stalls), best metric first. */
+export function exerciseProgressSummary() {
+  const names = new Set();
+  for (const s of getSessions()) for (const e of (s.entries || [])) if (e.name) names.add(e.name);
+  const rows = [];
+  for (const name of names) {
+    const points = progressForExercise(name);
+    if (!points.length) continue;
+    const m = progressMetric(points);
+    const best = Math.max(...m.values);
+    const latest = m.values[m.values.length - 1];
+    const bestPoint = points[m.values.indexOf(best)];
+    rows.push({
+      name, label: m.label, unit: m.unit, loaded: m.loaded,
+      best, latest, bestAt: bestPoint ? bestPoint.t : null,
+      sessions: points.length, stalled: isStalled(m.values),
+      improving: m.values.length >= 2 && latest > m.values[m.values.length - 2],
+    });
+  }
+  rows.sort((a, b) => b.best - a.best);
+  return rows;
+}
+
+/**
+ * Exercises in `entries` that beat their previous best — for the PR toast.
+ * MUST be called BEFORE the new session is saved, so the prior history is clean.
+ */
+export function newPRsIn(entries) {
+  const prs = [];
+  for (const e of (entries || [])) {
+    const pts = progressForExercise(e.name);
+    if (!pts.length) continue; // first time logging this exercise isn't a "PR"
+    let curE = 0, curReps = 0, curW = 0;
+    for (const set of (e.sets || [])) {
+      const w = Number(set.weight) || 0, r = Number(set.reps) || 0;
+      curE = Math.max(curE, est1RM(w, r)); curReps = Math.max(curReps, r); curW = Math.max(curW, w);
+    }
+    const priorE = Math.max(...pts.map((p) => p.e1rm));
+    const priorReps = Math.max(...pts.map((p) => p.topReps));
+    if (curW > 0 || priorE > 0) {
+      if (curE > priorE && curE > 0) prs.push({ name: e.name, kind: '1RM', value: curE, unit: 'kg' });
+    } else if (curReps > priorReps && curReps > 0) {
+      prs.push({ name: e.name, kind: 'reps', value: curReps, unit: 'reps' });
+    }
+  }
+  return prs;
+}
+
 /* ---------- active (in-progress) workout ---------- */
 export function getActive() {
   return read(KEY_ACTIVE, null);

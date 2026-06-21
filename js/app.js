@@ -185,7 +185,7 @@ function screenPlan(id) {
             const rng = DB.repRange(e);
             const repTxt = rng.min === rng.max ? `${rng.max}` : `${rng.min}–${rng.max}`;
             return `
-              <div class="card">
+              <div class="card tappable" data-ex="${esc(e.name || '')}">
                 <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name || 'Exercise')}</p>
                 <p class="desc" style="margin:0;color:var(--muted)">
                   Target ${e.sets}×${repTxt}${e.weight ? ` @ ${e.weight}` : ''}
@@ -205,6 +205,8 @@ function screenPlan(id) {
   `);
 
   qs('[data-run]').addEventListener('click', () => startRun(id));
+  qsa('[data-ex]').forEach((c) =>
+    c.addEventListener('click', () => go('#/exercise/' + encodeURIComponent(c.dataset.ex))));
 }
 
 /* ============================================================
@@ -613,6 +615,7 @@ function screenRun(planId) {
       return go('#/plan/' + planId);
     }
 
+    const prs = DB.newPRsIn(entries); // compute BEFORE saving (needs prior history)
     DB.addSession({
       id: DB.uid(),
       planId,
@@ -623,7 +626,9 @@ function screenRun(planId) {
       entries,
     });
     DB.setActive(null);
-    toast(`Done · ${fmtDuration(durationSec)}`);
+    toast(prs.length
+      ? `🏆 New PR — ${prs.map((p) => p.name).join(', ')}!`
+      : `Done · ${fmtDuration(durationSec)}`);
     go('#/plan/' + planId + '/history');
   }
 
@@ -706,6 +711,67 @@ function screenSession(sessionId) {
   });
 }
 
+/* Tiny inline line chart (no deps). Scales values to the viewBox. */
+function sparkline(values, { h = 64, pad = 8 } = {}) {
+  const vals = values.length === 1 ? [values[0], values[0]] : values;
+  if (!vals.length) return '';
+  const w = 320;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const stepX = (w - pad * 2) / (vals.length - 1);
+  const pts = vals.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = h - pad - ((v - min) / span) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const [lx, ly] = pts[pts.length - 1].split(',');
+  return `
+    <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="progress chart">
+      <polyline fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
+      <circle cx="${lx}" cy="${ly}" r="3.5" fill="var(--accent)"/>
+    </svg>`;
+}
+
+/* ============================================================
+   SCREEN: Exercise progress — chart + per-session history for one lift
+   ============================================================ */
+function screenExercise(name) {
+  const points = DB.progressForExercise(name);
+  if (!points.length) {
+    mount(`
+      ${topbar(name, { back: '#/insights' })}
+      <main class="screen"><div class="empty"><p>No history for ${esc(name)} yet.</p></div></main>`);
+    return;
+  }
+  const m = DB.progressMetric(points);
+  const best = Math.max(...m.values);
+  const latest = m.values[m.values.length - 1];
+  const delta = latest - m.values[0];
+  const stalled = DB.isStalled(m.values);
+
+  const rows = [...points].reverse().map((p) => {
+    const setTxt = p.topWeight ? `${p.topReps}×${p.topWeight}kg` : `${p.topReps} reps`;
+    const e = m.loaded && p.e1rm ? ` · ${p.e1rm}kg est. 1RM` : '';
+    return `<div class="kv"><span>${esc(fmtDate(p.t))}</span><b>${setTxt}${e}</b></div>`;
+  }).join('');
+
+  mount(`
+    ${topbar(name, { back: '#/insights', sub: `${points.length} session${points.length > 1 ? 's' : ''}` })}
+    <main class="screen">
+      ${stalled ? `<div class="card banner-warn">${icons.target} <span>Stalled — your best was a few sessions ago. Try a small deload (−10%) and build back up.</span></div>` : ''}
+      <div class="stat-grid stat-grid-2">
+        <div class="card stat"><div class="stat-v">${best}<span class="u">${m.unit}</span></div><div class="stat-l">Best ${m.label}</div></div>
+        <div class="card stat"><div class="stat-v">${latest}<span class="u">${m.unit}</span></div><div class="stat-l">Latest</div></div>
+      </div>
+      <div class="section-label">${m.label} over time ${delta !== 0 ? `<span style="color:${delta > 0 ? 'var(--accent)' : 'var(--muted)'}">(${delta > 0 ? '+' : ''}${delta}${m.unit})</span>` : ''}</div>
+      <div class="card chart-card">${sparkline(m.values)}</div>
+      <div class="section-label">Every session</div>
+      <div class="card">${rows}</div>
+      <div class="spacer"></div>
+    </main>
+  `);
+}
+
 /* ============================================================
    SCREEN: Insights — overview of everything logged
    ============================================================ */
@@ -760,6 +826,39 @@ function screenInsights() {
   const usualTime = Object.entries(buckets).sort((a, b) => b[1] - a[1])[0][0];
   const muscleRows = Object.entries(muscle).sort((a, b) => b[1] - a[1]);
   const maxM = muscleRows.length ? muscleRows[0][1] : 1;
+  const setDenom = totalSets || 1; // guard NaN% if an imported session has no sets
+
+  // longest streak ever (consecutive workout days)
+  let bestStreak = 0, run = 0;
+  const sortedDays = [...daySet].sort((a, b) => a - b);
+  for (let i = 0; i < sortedDays.length; i++) {
+    run = (i > 0 && sortedDays[i] - sortedDays[i - 1] === 86400000) ? run + 1 : 1;
+    if (run > bestStreak) bestStreak = run;
+  }
+
+  // sets-per-day -> consistency calendar (last 13 weeks, Mon-top columns)
+  const dayCounts = {};
+  for (const s of sessions) {
+    const d = startOfDay(s.startedAt);
+    let c = 0; for (const e of (s.entries || [])) c += (e.sets || []).length;
+    dayCounts[d] = (dayCounts[d] || 0) + c;
+  }
+  const WEEKS = 13;
+  const mondayThisWeek = todayStart - dow * 86400000;
+  const calStart = mondayThisWeek - (WEEKS - 1) * 7 * 86400000;
+  let calCells = '';
+  for (let wk = 0; wk < WEEKS; wk++) {
+    for (let d = 0; d < 7; d++) {
+      const day = calStart + (wk * 7 + d) * 86400000;
+      if (day > todayStart) { calCells += '<div class="cal-cell cal-future"></div>'; continue; }
+      const c = dayCounts[day] || 0;
+      const lvl = c === 0 ? 0 : c <= 4 ? 1 : c <= 8 ? 2 : c <= 14 ? 3 : 4;
+      calCells += `<div class="cal-cell cal-l${lvl}" title="${esc(fmtDate(day))} · ${c} sets"></div>`;
+    }
+  }
+
+  const progress = DB.exerciseProgressSummary(); // strength records, best-first
+  const stalls = progress.filter((r) => r.stalled);
 
   const stat = (label, value) =>
     `<div class="card stat"><div class="stat-v">${value}</div><div class="stat-l">${label}</div></div>`;
@@ -774,16 +873,40 @@ function screenInsights() {
         ${stat('Total time', fmtDuration(totalSec))}
       </div>
 
+      <div class="section-label">Consistency</div>
+      <div class="card">
+        <div class="cal">${calCells}</div>
+        <div class="cal-legend">
+          <span>best streak <b>${bestStreak}</b> day${bestStreak === 1 ? '' : 's'}</span>
+          <span class="cal-key">less ${[0, 1, 2, 3, 4].map((l) => `<i class="cal-cell cal-l${l}"></i>`).join('')} more</span>
+        </div>
+      </div>
+
       <div class="section-label">Volume lifted</div>
       <div class="card">
         <div class="stat-v" style="font-size:30px">${fmtInt(volume)} <span style="font-size:16px;color:var(--muted)">kg total</span></div>
         <div class="stat-l">${fmtInt(reps)} reps · ${totalSets} sets across all workouts</div>
       </div>
 
+      ${progress.length ? `
+      <div class="section-label">Strength records</div>
+      ${progress.slice(0, 8).map((r) => `
+        <div class="card hist-row tappable" data-ex="${esc(r.name)}">
+          <div class="when">
+            <p class="date">${esc(r.name)} ${r.stalled ? '<span class="chip chip-warn">stalled</span>' : (r.improving ? '<span class="chip chip-up">↑ up</span>' : '')}</p>
+            <p class="summary">best <b>${r.best}${r.unit}</b> · now ${r.latest}${r.unit} · ${r.sessions} session${r.sessions === 1 ? '' : 's'}</p>
+          </div>
+          <div class="dur">${icons.chart}</div>
+        </div>`).join('')}` : ''}
+
+      ${stalls.length ? `
+      <div class="section-label">Needs attention</div>
+      <div class="card banner-warn">${icons.target} <span>${stalls.map((r) => esc(r.name)).join(', ')} ${stalls.length === 1 ? 'has' : 'have'} stalled — try a small deload (−10%) and build back up.</span></div>` : ''}
+
       <div class="section-label">Muscle focus (by sets)</div>
       <div class="card">
         ${muscleRows.map(([m, c]) => {
-          const pct = Math.round((c / totalSets) * 100);
+          const pct = Math.round((c / setDenom) * 100);
           return `
           <div class="mbar">
             <div class="mbar-top"><span>${m}</span><span>${c} set${c === 1 ? '' : 's'} · ${pct}%</span></div>
@@ -814,6 +937,8 @@ function screenInsights() {
 
   qsa('[data-session]').forEach((c) =>
     c.addEventListener('click', () => go('#/session/' + c.dataset.session)));
+  qsa('[data-ex]').forEach((c) =>
+    c.addEventListener('click', () => go('#/exercise/' + encodeURIComponent(c.dataset.ex))));
 }
 
 /* ============================================================
@@ -828,6 +953,7 @@ function router() {
   if (parts[0] === 'history') return screenHistory(null);
   if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'session') return screenSession(parts[1]);
+  if (parts[0] === 'exercise') return screenExercise(decodeURIComponent(parts.slice(1).join('/')));
   if (parts[0] === 'template') return screenTemplate(parts[1]);
   if (parts[0] === 'plan') {
     if (parts[1] === 'new') return screenEditor('new');
