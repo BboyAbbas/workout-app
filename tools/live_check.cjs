@@ -17,7 +17,16 @@ const check = (c, m) => { console.log((c ? '  PASS: ' : '  FAIL: ') + m); if (!c
 
   await page.goto(BASE, { waitUntil: 'load' });
   await page.waitForSelector('.topbar', { timeout: 10000 });
-  check(true, 'app shell booted under subpath');
+
+  // Wait for the worker to take control, tolerating the one-time
+  // controllerchange auto-reload (which destroys the JS context).
+  for (let i = 0; i < 15; i++) {
+    try { if (await page.evaluate(() => !!navigator.serviceWorker.controller)) break; }
+    catch (_) { /* context destroyed by auto-reload; retry */ }
+    await page.waitForTimeout(600);
+  }
+  await page.waitForSelector('.topbar', { timeout: 10000 });
+  check(true, 'app shell booted under subpath (worker in control)');
 
   // manifest fetches + parses
   const man = await page.evaluate(async () => {
