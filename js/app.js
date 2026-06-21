@@ -323,8 +323,37 @@ function screenRun(planId) {
   // rest-timer state lives outside the DOM so re-renders don't kill it
   const rest = { id: null, remaining: 0, total: 0, exId: null };
   let elapsedId = null; // single elapsed ticker, replaced (not stacked) each render
+  let activeSel = firstPending(); // the set the one pinned Log button will save
 
   function persist() { DB.setActive(active); }
+
+  // first not-yet-logged set, scanning exercises in order (null if all done)
+  function firstPending() {
+    for (const exId of order) {
+      const en = active.entries[exId];
+      if (!en) continue;
+      const si = en.sets.findIndex((s) => !s.done);
+      if (si !== -1) return { exId, si };
+    }
+    return null;
+  }
+
+  // highlight a set as the active one WITHOUT re-rendering (keeps input focus)
+  function selectActive(exId, si) {
+    activeSel = { exId, si };
+    qsa('.set-row').forEach((r) =>
+      r.classList.toggle('active', r.dataset.ex === exId && +r.dataset.si === si));
+    updateLogLabel();
+  }
+  function logLabel() {
+    return activeSel
+      ? `Log ${active.entries[activeSel.exId].name} · set ${activeSel.si + 1}`
+      : 'Finish workout';
+  }
+  function updateLogLabel() {
+    const btn = qs('#logbtn');
+    if (btn) btn.textContent = logLabel();
+  }
 
   function render() {
     const exHtml = order.map((exId) => {
@@ -332,22 +361,21 @@ function screenRun(planId) {
       if (!en) return '';
       const last = DB.lastEntryForExercise(exId, en.name);
       const lastTxt = last ? summariseSets(last) : 'first time';
-      const pendingIdx = en.sets.findIndex((s) => !s.done);
-      const rows = en.sets.map((s, si) => `
-        <div class="set-row ${s.done ? 'done' : ''}" data-ex="${exId}" data-si="${si}">
-          <button class="set-n" data-reopen="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
-          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" ${s.done ? 'readonly' : ''} />
-          <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" ${s.done ? 'readonly' : ''} />
-        </div>`).join('');
+      const rows = en.sets.map((s, si) => {
+        const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
+        return `
+        <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
+          <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
+          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" />
+          <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" />
+        </div>`;
+      }).join('');
       return `
         <div class="card run-ex">
           <p class="name">${esc(en.name)}</p>
           <p class="lasttime">Last time: <b>${esc(lastTxt)}</b></p>
           <div class="hint-cols"><span>#</span><span>Reps</span><span>Weight</span></div>
           ${rows}
-          ${pendingIdx >= 0
-            ? `<button class="btn btn-primary btn-block log-btn" data-log="${exId}" data-si="${pendingIdx}">Log set ${pendingIdx + 1}</button>`
-            : `<div class="all-done">✓ all ${en.sets.length} sets logged</div>`}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
         </div>`;
     }).join('');
@@ -360,13 +388,15 @@ function screenRun(planId) {
         </div>
         <button class="btn btn-primary" id="finish">${icons.check} Finish</button>
       </div>
-      <main class="screen">
+      <main class="screen" style="padding-bottom:200px">
         ${exHtml}
         <div class="spacer"></div>
         <button class="btn btn-danger btn-block" id="discard">Discard workout</button>
-        <div class="spacer"></div><div class="spacer"></div>
       </main>
-      <div id="rest-host"></div>
+      <footer class="run-foot">
+        <div id="rest-host"></div>
+        <button class="btn btn-primary btn-block log-pinned" id="logbtn">${esc(logLabel())}</button>
+      </footer>
     `);
 
     startElapsed();
@@ -416,22 +446,18 @@ function screenRun(planId) {
     if (!rest.id) { host.innerHTML = ''; return; }
     const pct = rest.total ? (rest.remaining / rest.total) * 100 : 0;
     host.innerHTML = `
-      <div style="position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px));z-index:40;
-                  max-width:var(--maxw);margin:0 auto;padding:0 14px 14px">
-        <div class="card" style="margin:0;border-color:var(--accent);display:flex;align-items:center;gap:14px;
-                  box-shadow:0 -6px 24px rgba(0,0,0,0.4)">
-          <div style="flex:1">
-            <div style="display:flex;justify-content:space-between;align-items:baseline">
-              <span class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Rest</span>
-              <span style="font-variant-numeric:tabular-nums;font-size:24px;font-weight:700">${fmtClock(rest.remaining)}</span>
-            </div>
-            <div style="height:6px;background:var(--surface-2);border-radius:3px;margin-top:8px;overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:var(--accent);transition:width 1s linear"></div>
-            </div>
+      <div class="card" style="margin:0 0 10px;border-color:var(--accent);display:flex;align-items:center;gap:14px;padding:12px 14px">
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Rest</span>
+            <span style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:700">${fmtClock(rest.remaining)}</span>
           </div>
-          <button class="btn btn-sm" id="rest-add">+15s</button>
-          <button class="btn btn-sm btn-primary" id="rest-skip">Skip</button>
+          <div style="height:6px;background:var(--surface-2);border-radius:3px;margin-top:8px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:var(--accent);transition:width 1s linear"></div>
+          </div>
         </div>
+        <button class="btn btn-sm" id="rest-add">+15s</button>
+        <button class="btn btn-sm btn-primary" id="rest-skip">Skip</button>
       </div>`;
     const add = qs('#rest-add');
     const skip = qs('#rest-skip');
@@ -441,45 +467,24 @@ function screenRun(planId) {
 
   /* ---- event wiring ---- */
   function bindRun() {
-    // typing into reps/weight updates state
-    qsa('.set-row .input').forEach((inp) =>
+    qsa('.set-row .input').forEach((inp) => {
+      // typing persists to state
       inp.addEventListener('input', () => {
         const row = inp.closest('.set-row');
-        const en = active.entries[row.dataset.ex];
-        const s = en.sets[+row.dataset.si];
-        const f = inp.dataset.f;
-        s[f] = inp.value;
+        const s = active.entries[row.dataset.ex].sets[+row.dataset.si];
+        s[inp.dataset.f] = inp.value;
         persist();
-      }));
+      });
+      // focusing a set makes it the active one (what the Log button saves)
+      inp.addEventListener('focus', () => {
+        const row = inp.closest('.set-row');
+        selectActive(row.dataset.ex, +row.dataset.si);
+      });
+    });
 
-    // big bottom button: log the next pending set -> mark done + start rest
-    qsa('[data-log]').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        const exId = btn.dataset.log;
-        const si = +btn.dataset.si;
-        const en = active.entries[exId];
-        const s = en.sets[si];
-        const row = app.querySelector(`.set-row[data-ex="${exId}"][data-si="${si}"]`);
-        if (row) {
-          s.reps = row.querySelector('[data-f=reps]').value;
-          s.weight = row.querySelector('[data-f=weight]').value;
-        }
-        s.done = true;
-        persist();
-        startRest(en.rest || DB.DEFAULT_REST, exId);
-        render();
-      }));
-
-    // tap a logged set's number (now a ✓) to reopen it for a fix
-    qsa('[data-reopen]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const en = active.entries[b.dataset.reopen];
-        const s = en.sets[+b.dataset.si];
-        if (!s.done) return;
-        s.done = false;
-        persist();
-        render();
-      }));
+    // tap a set's number to select it as the active set
+    qsa('[data-select]').forEach((b) =>
+      b.addEventListener('click', () => selectActive(b.dataset.select, +b.dataset.si)));
 
     // add an extra set to an exercise
     qsa('[data-addset]').forEach((b) =>
@@ -491,12 +496,37 @@ function screenRun(planId) {
         render();
       }));
 
+    // THE one pinned button: log the selected set, then jump to the next
+    qs('#logbtn').addEventListener('click', onLog);
+
     qs('#finish').addEventListener('click', finishWorkout);
     qs('#discard').addEventListener('click', () => {
       if (confirm('Discard this workout? Nothing will be saved.')) {
         stopRest(); DB.setActive(null); go('#/plan/' + planId);
       }
     });
+  }
+
+  function onLog() {
+    if (!activeSel) return finishWorkout(); // all sets done -> button is "Finish workout"
+    const { exId, si } = activeSel;
+    const en = active.entries[exId];
+    const s = en.sets[si];
+    const row = app.querySelector(`.set-row[data-ex="${exId}"][data-si="${si}"]`);
+    if (row) {
+      s.reps = row.querySelector('[data-f=reps]').value;
+      s.weight = row.querySelector('[data-f=weight]').value;
+    }
+    if (s.reps === '' || s.reps == null) {
+      toast('Enter reps first');
+      if (row) row.querySelector('[data-f=reps]').focus();
+      return;
+    }
+    s.done = true;
+    persist();
+    startRest(en.rest || DB.DEFAULT_REST, exId);
+    activeSel = firstPending(); // advance to the next unlogged set (null when done)
+    render();
   }
 
   function finishWorkout() {

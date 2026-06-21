@@ -220,10 +220,21 @@ input, select { font-family: inherit; }
 }
 .hint-cols span { text-align: center; }
 
-.log-btn { margin-top: 12px; height: 52px; font-size: 16px; }
-.all-done {
-  text-align: center; color: var(--accent); font-weight: 650;
-  padding: 14px; font-size: 14px; margin-top: 6px;
+/* the active (selected) set — what the pinned Log button will save */
+.set-row.active { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.set-row.active .set-n { color: var(--accent); }
+
+/* pinned bottom bar holding the single Log button (rest bar stacks above it) */
+.run-foot {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  max-width: var(--maxw); margin: 0 auto;
+  padding: 12px 14px calc(12px + var(--safe-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.run-foot .log-pinned {
+  height: 58px; font-size: 17px; font-weight: 700;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 
 /* ---------- History ---------- */

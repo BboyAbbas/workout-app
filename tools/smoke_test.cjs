@@ -61,13 +61,15 @@ function check(cond, msg) {
   await page.waitForTimeout(1200);
   const t1 = await page.locator('#elapsed').textContent();
   check(t0 !== t1, `elapsed timer ticks (${t0} -> ${t1})`);
+  check(await page.locator('#logbtn').isVisible(), 'single pinned Log button shown');
 
-  console.log('\n[5] Log a set -> rest countdown + vibration');
+  console.log('\n[5] Log the selected set -> rest countdown + vibration');
   const row = page.locator('.set-row').first();
+  check(await page.locator('.set-row.active').first().isVisible(), 'first set is auto-selected (highlighted)');
   await row.locator('[data-f="reps"]').fill('10');
   await row.locator('[data-f="weight"]').fill('20');
-  await page.locator('[data-log]').first().click();
-  check(await page.locator('.set-row.done').first().isVisible(), 'set logged via bottom button (marked done)');
+  await page.locator('#logbtn').click();
+  check(await page.locator('.set-row.done').first().isVisible(), 'pinned button logged the selected set');
   await page.waitForSelector('#rest-host .card', { timeout: 2000 });
   check(await page.locator('#rest-host').getByText('Rest').isVisible(), 'rest bar appears');
   // wait for the 2s rest to elapse -> vibration
