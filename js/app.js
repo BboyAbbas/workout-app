@@ -27,7 +27,11 @@ function qsa(sel) { return Array.from(app.querySelectorAll(sel)); }
 function topbar(title, { back = null, sub = '', right = '' } = {}) {
   return `
     <header class="topbar">
-      ${back !== null ? `<button class="icon-btn" data-nav="${esc(back)}" aria-label="Back">${icons.back}</button>` : ''}
+      ${back === 'back'
+        ? `<button class="icon-btn" data-back aria-label="Back">${icons.back}</button>`
+        : back !== null
+          ? `<button class="icon-btn" data-nav="${esc(back)}" aria-label="Back">${icons.back}</button>`
+          : ''}
       <div style="flex:1;min-width:0">
         <h1>${esc(title)}</h1>
         ${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
@@ -749,7 +753,7 @@ function screenExercise(name) {
   const points = DB.progressForExercise(name);
   if (!points.length) {
     mount(`
-      ${topbar(name, { back: '#/insights' })}
+      ${topbar(name, { back: 'back' })}
       <main class="screen"><div class="empty"><p>No history for ${esc(name)} yet.</p></div></main>`);
     return;
   }
@@ -766,7 +770,7 @@ function screenExercise(name) {
   }).join('');
 
   mount(`
-    ${topbar(name, { back: '#/insights', sub: `${points.length} session${points.length > 1 ? 's' : ''}` })}
+    ${topbar(name, { back: 'back', sub: `${points.length} session${points.length > 1 ? 's' : ''}` })}
     <main class="screen">
       ${stalled ? `<div class="card banner-warn">${icons.target} <span>Stalled — your best was a few sessions ago. Try a small deload (−10%) and build back up.</span></div>` : ''}
       <div class="stat-grid stat-grid-2">
@@ -976,8 +980,12 @@ function router() {
   screenHome();
 }
 
-// global nav delegation for [data-nav]
+// global nav delegation for [data-nav] and history-back for [data-back]
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-back]')) {
+    if (history.length > 1) history.back(); else go('#/insights');
+    return;
+  }
   const n = e.target.closest('[data-nav]');
   if (n) go(n.dataset.nav);
 });

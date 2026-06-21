@@ -234,6 +234,20 @@ function check(cond, msg) {
   check((await page.locator('.spark polyline').count()) === 1, 'exercise progress chart renders');
   check(/#\/exercise\//.test(page.url()), 'navigated to exercise progress screen');
 
+  console.log('\n[7f] Exercise progress back-button returns to where you came from');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-ex]');             // plan-detail exercise rows
+  const planUrl = page.url();
+  await page.locator('[data-ex]').first().click();
+  await page.waitForSelector('.spark, .empty');
+  check(/#\/exercise\//.test(page.url()), 'plan exercise opens its progress screen');
+  await page.locator('[data-back]').click();
+  await page.waitForSelector('[data-run]');
+  check(page.url() === planUrl && /#\/plan\//.test(page.url()),
+    'back returns to the plan, not the general insights page');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
