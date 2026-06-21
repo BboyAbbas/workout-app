@@ -394,8 +394,8 @@ function screenRun(planId) {
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
           <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
-          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" />
           <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" />
+          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" />
         </div>`;
       }).join('');
       const recHtml = en.rec
@@ -406,7 +406,7 @@ function screenRun(planId) {
           <p class="name">${esc(en.name)}</p>
           <p class="lasttime">Last time: <b>${esc(lastTxt)}</b></p>
           ${recHtml}
-          <div class="hint-cols"><span>#</span><span>Reps</span><span>Weight</span></div>
+          <div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>
           ${rows}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
         </div>`;
