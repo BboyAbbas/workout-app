@@ -24,9 +24,21 @@
   <script type="module" src="js/app.js"></script>
   <script>
     // Register service worker for offline support.
+    // updateViaCache:'none' -> always revalidate sw.js (never serve a stale worker).
+    // controllerchange -> when a new worker takes over, reload once so the latest
+    // code shows immediately (no manual double-refresh).
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+          reg.update();
+        } catch (_) {}
       });
     }
   </script>

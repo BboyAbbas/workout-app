@@ -1,6 +1,8 @@
-/* Service worker — offline app shell.
-   Bump CACHE when shipping changes so clients pull fresh files. */
-const CACHE = 'workout-v2';
+/* Service worker — offline support with always-fresh code.
+   Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
+   (no more stale-cache surprises while iterating). Offline -> fall back to the
+   cached copy. Bump CACHE on release to drop the old precache. */
+const CACHE = 'workout-v3';
 const SHELL = [
   './',
   'index.html',
@@ -28,27 +30,26 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+async function networkFirst(req) {
+  try {
+    const res = await fetch(req);
+    // refresh the cache copy for offline use
+    const copy = res.clone();
+    caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+    return res;
+  } catch (_) {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    // navigation offline with no exact match -> serve the app shell
+    if (req.mode === 'navigate') {
+      return (await caches.match('index.html')) || (await caches.match('./'));
+    }
+    throw _;
+  }
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-
-  // Navigations: network-first, fall back to cached shell (works offline).
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).catch(() => caches.match('index.html').then((r) => r || caches.match('./')))
-    );
-    return;
-  }
-
-  // Static assets: cache-first, then network (and cache it for next time).
-  e.respondWith(
-    caches.match(req).then((cached) =>
-      cached ||
-      fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-        return res;
-      })
-    )
-  );
+  e.respondWith(networkFirst(req));
 });

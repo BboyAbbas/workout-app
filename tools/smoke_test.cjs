@@ -96,6 +96,17 @@ function check(cond, msg) {
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
+  console.log('\n[9] Offline still works (service worker cache)');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.topbar');
+  await page.waitForTimeout(1500); // let the worker take control + one-time reload settle
+  await page.waitForSelector('.topbar').catch(() => {});
+  await page.context().setOffline(true);
+  let offlineOk = false;
+  try { await page.reload({ timeout: 8000 }); await page.waitForSelector('.topbar', { timeout: 6000 }); offlineOk = true; } catch (_) {}
+  check(offlineOk, 'app shell renders with network OFF');
+  await page.context().setOffline(false);
+
   await browser.close();
   console.log('\n' + (fails.length ? `RESULT: ${fails.length} FAILED` : 'RESULT: ALL PASSED'));
   process.exit(fails.length ? 1 : 0);
