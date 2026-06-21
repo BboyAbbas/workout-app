@@ -1,6 +1,6 @@
 /* Service worker — offline app shell.
    Bump CACHE when shipping changes so clients pull fresh files. */
-const CACHE = 'workout-v1';
+const CACHE = 'workout-v2';
 const SHELL = [
   './',
   'index.html',

@@ -88,6 +88,18 @@ function screenHome() {
       <button class="icon-btn btn-primary" style="border-radius:12px">${icons.play}</button>
     </div>` : '';
 
+  // Templates stay reachable once plans exist (tap to add a copy you can edit).
+  const templatesBlock = `
+    <div class="section-label">Add from a template</div>
+    ${DB.TEMPLATES.map((t, i) => `
+      <div class="card plan-card tappable" data-tpl="${i}">
+        <div class="meta">
+          <p class="name">${esc(t.name)}</p>
+          <p class="desc">${t.exercises.length} exercises · tap to add</p>
+        </div>
+        <button class="icon-btn" aria-label="Add">${icons.plus}</button>
+      </div>`).join('')}`;
+
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -96,6 +108,7 @@ function screenHome() {
     <main class="screen">
       ${resumeBar}
       ${body}
+      ${plans.length ? templatesBlock : ''}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
   `);
@@ -309,6 +322,7 @@ function screenRun(planId) {
 
   // rest-timer state lives outside the DOM so re-renders don't kill it
   const rest = { id: null, remaining: 0, total: 0, exId: null };
+  let elapsedId = null; // single elapsed ticker, replaced (not stacked) each render
 
   function persist() { DB.setActive(active); }
 
@@ -318,26 +332,29 @@ function screenRun(planId) {
       if (!en) return '';
       const last = DB.lastEntryForExercise(exId, en.name);
       const lastTxt = last ? summariseSets(last) : 'first time';
+      const pendingIdx = en.sets.findIndex((s) => !s.done);
       const rows = en.sets.map((s, si) => `
         <div class="set-row ${s.done ? 'done' : ''}" data-ex="${exId}" data-si="${si}">
-          <div class="set-n">${si + 1}</div>
-          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" />
-          <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" />
-          <button class="set-check ${s.done ? 'on' : ''}" aria-label="Done">${icons.check}</button>
+          <button class="set-n" data-reopen="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
+          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" ${s.done ? 'readonly' : ''} />
+          <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" ${s.done ? 'readonly' : ''} />
         </div>`).join('');
       return `
         <div class="card run-ex">
           <p class="name">${esc(en.name)}</p>
           <p class="lasttime">Last time: <b>${esc(lastTxt)}</b></p>
-          <div class="hint-cols"><span>#</span><span>Reps</span><span>Weight</span><span></span></div>
+          <div class="hint-cols"><span>#</span><span>Reps</span><span>Weight</span></div>
           ${rows}
-          <button class="btn btn-sm btn-ghost" data-addset="${exId}" style="margin-top:6px">${icons.plus} Add set</button>
+          ${pendingIdx >= 0
+            ? `<button class="btn btn-primary btn-block log-btn" data-log="${exId}" data-si="${pendingIdx}">Log set ${pendingIdx + 1}</button>`
+            : `<div class="all-done">✓ all ${en.sets.length} sets logged</div>`}
+          <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
         </div>`;
     }).join('');
 
     mount(`
       <div class="timer-bar">
-        <div>
+        <div style="flex:1">
           <div class="label">Elapsed</div>
           <div class="time" id="elapsed">00:00</div>
         </div>
@@ -359,13 +376,15 @@ function screenRun(planId) {
 
   /* ---- elapsed (total workout) timer ---- */
   function startElapsed() {
+    if (elapsedId) clearInterval(elapsedId);
     const elEl = qs('#elapsed');
     const tick = () => {
       const secs = (Date.now() - active.startedAt) / 1000;
       if (elEl) elEl.textContent = fmtClock(secs);
     };
     tick();
-    addTicker(setInterval(tick, 1000));
+    elapsedId = setInterval(tick, 1000);
+    addTicker(elapsedId);
   }
 
   /* ---- rest countdown + vibration ---- */
@@ -433,18 +452,33 @@ function screenRun(planId) {
         persist();
       }));
 
-    // checking a set off -> mark done + start rest
-    qsa('.set-check').forEach((btn) =>
+    // big bottom button: log the next pending set -> mark done + start rest
+    qsa('[data-log]').forEach((btn) =>
       btn.addEventListener('click', () => {
-        const row = btn.closest('.set-row');
-        const en = active.entries[row.dataset.ex];
-        const s = en.sets[+row.dataset.si];
-        s.done = !s.done;
-        btn.classList.toggle('on', s.done);
-        row.classList.toggle('done', s.done);
+        const exId = btn.dataset.log;
+        const si = +btn.dataset.si;
+        const en = active.entries[exId];
+        const s = en.sets[si];
+        const row = app.querySelector(`.set-row[data-ex="${exId}"][data-si="${si}"]`);
+        if (row) {
+          s.reps = row.querySelector('[data-f=reps]').value;
+          s.weight = row.querySelector('[data-f=weight]').value;
+        }
+        s.done = true;
         persist();
-        if (s.done) startRest(en.rest || DB.DEFAULT_REST, row.dataset.ex);
-        else stopRest(), drawRest();
+        startRest(en.rest || DB.DEFAULT_REST, exId);
+        render();
+      }));
+
+    // tap a logged set's number (now a ✓) to reopen it for a fix
+    qsa('[data-reopen]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const en = active.entries[b.dataset.reopen];
+        const s = en.sets[+b.dataset.si];
+        if (!s.done) return;
+        s.done = false;
+        persist();
+        render();
       }));
 
     // add an extra set to an exercise

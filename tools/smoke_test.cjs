@@ -66,8 +66,8 @@ function check(cond, msg) {
   const row = page.locator('.set-row').first();
   await row.locator('[data-f="reps"]').fill('10');
   await row.locator('[data-f="weight"]').fill('20');
-  await row.locator('.set-check').click();
-  check(await row.locator('.set-check.on').isVisible(), 'set marked done');
+  await page.locator('[data-log]').first().click();
+  check(await page.locator('.set-row.done').first().isVisible(), 'set logged via bottom button (marked done)');
   await page.waitForSelector('#rest-host .card', { timeout: 2000 });
   check(await page.locator('#rest-host').getByText('Rest').isVisible(), 'rest bar appears');
   // wait for the 2s rest to elapse -> vibration
@@ -84,6 +84,7 @@ function check(cond, msg) {
   console.log('\n[7] Last-time memory on second run');
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
+  check((await page.locator('[data-tpl]').count()) >= 1, 'templates still reachable from populated home');
   await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
   check((await page.locator('text=last').count()) >= 0, 'plan detail renders (last-time wired)');

@@ -67,7 +67,7 @@ export const icons = {
   play: svg('<path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/>'),
   trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
   edit: svg('<path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/>'),
-  history: svg('<path d="M3 3v6h6M3 9a9 9 0 1 0 3-6.7L3 9M12 7v5l4 2"/>'),
+  history: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/>'),
   check: svg('<path d="M20 6L9 17l-5-5"/>'),
   more: svg('<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>'),
   dumbbell: svg('<path d="M6.5 6.5l11 11M3 9l3-3 3 3-3 3zM15 15l3-3 3 3-3 3z"/>'),

@@ -41,7 +41,8 @@ const check = (c, m) => { console.log((c ? '  PASS: ' : '  FAIL: ') + m); if (!c
   const row = page.locator('.set-row').first();
   await row.locator('[data-f="reps"]').fill('10');
   await row.locator('[data-f="weight"]').fill('30');
-  await row.locator('.set-check').click();
+  await page.locator('[data-log]').first().click();
+  await page.waitForSelector('#rest-host .card', { timeout: 3000 });
   check(await page.locator('#rest-host .card').isVisible(), 'rest timer starts on set logged');
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row', { timeout: 4000 });

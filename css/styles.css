@@ -197,27 +197,34 @@ input, select { font-family: inherit; }
 
 .set-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 44px;
+  grid-template-columns: 40px 1fr 1fr;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
 }
-.set-row .set-n { color: var(--muted); font-size: 14px; text-align: center; font-weight: 600; }
-.set-row .input { min-height: 44px; text-align: center; padding: 8px 4px; }
-.set-row.done .input { border-color: var(--accent); }
-.set-check {
-  width: 44px; height: 44px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--surface);
-  color: var(--muted); font-size: 18px; display: grid; place-items: center;
+.set-row .set-n {
+  height: 48px; border-radius: 10px;
+  background: transparent; border: none;
+  color: var(--muted); font-size: 15px; font-weight: 700;
+  display: grid; place-items: center;
 }
-.set-check.on { background: var(--accent); border-color: var(--accent); color: #06281c; }
+.set-row .set-n svg { width: 20px; height: 20px; }
+.set-row .input { min-height: 48px; text-align: center; padding: 8px 4px; }
+.set-row.done .set-n { color: var(--accent); }
+.set-row.done .input { border-color: var(--accent); opacity: 0.75; }
 
 .hint-cols {
-  display: grid; grid-template-columns: 28px 1fr 1fr 44px; gap: 8px;
+  display: grid; grid-template-columns: 40px 1fr 1fr; gap: 8px;
   font-size: 11px; color: var(--muted); text-transform: uppercase;
   letter-spacing: 0.06em; margin-bottom: 6px; padding: 0 2px;
 }
 .hint-cols span { text-align: center; }
+
+.log-btn { margin-top: 12px; height: 52px; font-size: 16px; }
+.all-done {
+  text-align: center; color: var(--accent); font-weight: 650;
+  padding: 14px; font-size: 14px; margin-top: 6px;
+}
 
 /* ---------- History ---------- */
 .hist-row { display: flex; align-items: center; gap: 14px; }

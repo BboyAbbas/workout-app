@@ -24,7 +24,7 @@ const fs = require('fs');
   const row = page.locator('.set-row').first();
   await row.locator('[data-f="reps"]').fill('12');
   await row.locator('[data-f="weight"]').fill('40');
-  await row.locator('.set-check').click();
+  await page.locator('[data-log]').first().click();
   await page.waitForSelector('#rest-host .card');
   await page.waitForTimeout(300);
   await page.screenshot({ path: __dirname + '/shots/3-run.png' });
