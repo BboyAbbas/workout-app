@@ -95,8 +95,11 @@ function check(cond, msg) {
   check((await page.locator('text=last').count()) >= 0, 'plan detail renders (last-time wired)');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex');
-  const lastTxt = await page.locator('.lasttime').first().textContent();
-  check(/10/.test(lastTxt), `last-time shows previous reps (${lastTxt.trim()})`);
+  const rVal = await page.locator('.run-ex').first().locator('[data-f="reps"]').first().inputValue();
+  const wVal = await page.locator('.run-ex').first().locator('[data-f="weight"]').first().inputValue();
+  check(rVal === '10' && wVal === '20', `last time is prefilled into the boxes (weight ${wVal}, reps ${rVal})`);
+  check((await page.locator('.input.rec-target').count()) >= 1, 'progressive-overload target highlighted on a cell');
+  check((await page.locator('.rec-goal').count()) >= 1, 'goal chip shown on the exercise');
 
   console.log('\n[7b] Insights page');
   await page.goto(BASE + '/#/insights');
@@ -138,9 +141,9 @@ function check(cond, msg) {
   await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
-  await page.waitForSelector('.run-ex .rec');
+  await page.waitForSelector('.run-ex .set-row');
   const prefRep = await page.locator('.run-ex').nth(0).locator('[data-f="reps"]').first().inputValue();
-  check(prefRep !== '', `recommendation prefilled the reps box (${prefRep}) without logging`);
+  check(prefRep !== '', `last-time value prefilled in the reps box (${prefRep}) without logging`);
   await page.locator('#finish').click();
   await page.waitForTimeout(200);
   const s2 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
@@ -214,6 +217,7 @@ function check(cond, msg) {
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
+  check((await page.locator('.input.rec-target').count()) >= 1, 'recommendation highlights a cell on the run screen');
   await logSquat(70, 10);
   await page.locator('#finish').click();
   const prToast = await page.waitForSelector('.toast', { timeout: 2500 }).then((h) => h.textContent()).catch(() => '');

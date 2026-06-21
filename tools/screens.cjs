@@ -49,7 +49,7 @@ const fs = require('fs');
   await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
-  await page.waitForSelector('.run-ex .rec');
+  await page.waitForSelector('.run-ex .set-row');
   await page.waitForTimeout(200);
   await page.screenshot({ path: __dirname + '/shots/3-run.png' });
 

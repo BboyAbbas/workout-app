@@ -145,7 +145,7 @@ function screenTemplate(i) {
         return `
           <div class="card">
             <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name)}</p>
-            <p class="desc" style="margin:0;color:var(--muted)">Target ${e.sets}×${repTxt}</p>
+            <p class="desc" style="margin:0;color:var(--muted)">Target ${e.sets} × ${repTxt} reps</p>
           </div>`;
       }).join('')}
       <div class="spacer"></div>
@@ -188,8 +188,8 @@ function screenPlan(id) {
               <div class="card tappable" data-ex="${esc(e.name || '')}">
                 <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name || 'Exercise')}</p>
                 <p class="desc" style="margin:0;color:var(--muted)">
-                  Target ${e.sets}×${repTxt}${e.weight ? ` @ ${e.weight}` : ''}
-                  ${ltTxt ? ` · last <b style="color:var(--accent)">${esc(ltTxt)}</b>` : ''}
+                  Target ${e.sets} × ${repTxt} reps${e.weight ? ` · ${e.weight} kg` : ''}
+                  ${ltTxt ? `<br>last time: <b style="color:var(--accent)">${esc(ltTxt)}</b>` : ''}
                 </p>
               </div>`;
           }).join('')}
@@ -345,27 +345,28 @@ function startRun(planId) {
     const last = DB.lastEntryForExercise(e.id, e.name) || [];
     const range = DB.repRange(e);
     const rec = DB.recommendNext(last.length ? last : null, range, DB.DEFAULT_INC, e.sets);
-    const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => {
-      if (rec.dir === 'up') {
-        return { reps: range.min, weight: rec.weight, done: false };
-      }
-      if (rec.dir === 'hold') {
-        const lr = Number(last[i]?.reps);
-        const reps = Number.isFinite(lr) && lr > 0 ? Math.min(range.max, lr + 1) : range.min;
-        const weight = rec.weight ?? last[i]?.weight ?? (e.weight || '');
-        return { reps, weight, done: false };
-      }
-      return { reps: '', weight: e.weight || '', done: false }; // first time
-    });
+    // Prefill each set with LAST TIME's numbers so there's no math to redo. The
+    // progressive-overload target is shown as a highlight + arrow on the cell to
+    // push (see render), not baked into the prefilled value.
+    const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => ({
+      reps: last[i]?.reps ?? '',
+      weight: last[i]?.weight ?? (e.weight || ''),
+      done: false,
+    }));
+    const lastBestReps = last.length ? Math.max(...last.map((s) => Number(s.reps) || 0)) : 0;
+    const recView = { dir: rec.dir };
+    if (rec.dir === 'up') recView.newWeight = rec.weight;            // push the weight up
+    if (rec.dir === 'hold' && last.length) {                          // beat the reps
+      recView.targetReps = lastBestReps >= range.max ? lastBestReps + 1 : range.max;
+    }
     entries[e.id] = {
       exerciseId: e.id,
       name: e.name,
       rest: e.rest ?? DB.DEFAULT_REST,
       targetSets: e.sets,
-      targetReps: range.max,
       repMin: range.min,
       repMax: range.max,
-      rec: { dir: rec.dir, note: rec.note },
+      rec: recView,
       sets,
     };
   }
@@ -420,30 +421,38 @@ function screenRun(planId) {
     const exHtml = order.map((exId) => {
       const en = active.entries[exId];
       if (!en) return '';
-      const last = DB.lastEntryForExercise(exId, en.name);
-      const lastTxt = last ? summariseSets(last) : 'first time';
+      const rec = en.rec || { dir: 'first' };
+      const upW = rec.dir === 'up' && rec.newWeight != null;
+      const holdR = rec.dir === 'hold' && rec.targetReps != null;
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
+        // subtle ring on the column to beat, only on un-logged sets
+        const wCls = upW && !s.done ? ' rec-target' : '';
+        const rCls = holdR && !s.done ? ' rec-target' : '';
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
           <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
-          <input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" />
-          <input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" />
+          <div class="cell"><input class="input${wCls}" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" /></div>
+          <div class="cell"><input class="input${rCls}" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" /></div>
         </div>`;
       }).join('');
-      const recHtml = en.rec
-        ? `<p class="rec rec-${en.rec.dir}">${en.rec.dir === 'up' ? icons.up : icons.target} ${esc(en.rec.note)}</p>`
-        : '';
+      // one clear goal chip per exercise (no per-cell math)
+      const goal = upW ? `<span class="rec-goal">aim ${rec.newWeight} kg</span>`
+        : holdR ? `<span class="rec-goal">aim ${rec.targetReps} reps</span>` : '';
       return `
         <div class="card run-ex">
-          <p class="name">${esc(en.name)}</p>
-          <p class="lasttime">Last time: <b>${esc(lastTxt)}</b></p>
-          ${recHtml}
+          <p class="name">${esc(en.name)}${goal}</p>
           <div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>
           ${rows}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
         </div>`;
     }).join('');
+
+    const hasRec = Object.values(active.entries)
+      .some((en) => en.rec && (en.rec.dir === 'up' || en.rec.dir === 'hold'));
+    const legend = hasRec
+      ? `<p class="run-legend">Boxes show last time — beat the <b class="rec-goal">green</b> box to level up.</p>`
+      : '';
 
     mount(`
       <div class="timer-bar">
@@ -454,6 +463,7 @@ function screenRun(planId) {
         <button class="btn btn-primary" id="finish">${icons.check} Finish</button>
       </div>
       <main class="screen" style="padding-bottom:200px">
+        ${legend}
         ${exHtml}
         <div class="spacer"></div>
         <button class="btn btn-danger btn-block" id="discard">Discard workout</button>
@@ -696,7 +706,7 @@ function screenSession(sessionId) {
           ${e.sets.map((set, i) => `
             <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
               <span style="color:var(--muted)">Set ${i + 1}</span>
-              <span style="font-weight:600">${esc(set.reps)} reps${set.weight ? ` · ${esc(set.weight)}` : ''}</span>
+              <span style="font-weight:600">${esc(set.reps)} reps${set.weight ? ` · ${esc(set.weight)} kg` : ''}</span>
             </div>`).join('')}
         </div>`).join('')}
       <div class="spacer"></div>
@@ -750,8 +760,8 @@ function screenExercise(name) {
   const stalled = DB.isStalled(m.values);
 
   const rows = [...points].reverse().map((p) => {
-    const setTxt = p.topWeight ? `${p.topReps}×${p.topWeight}kg` : `${p.topReps} reps`;
-    const e = m.loaded && p.e1rm ? ` · ${p.e1rm}kg est. 1RM` : '';
+    const setTxt = p.topWeight ? `${p.topReps} reps · ${p.topWeight} kg` : `${p.topReps} reps`;
+    const e = m.loaded && p.e1rm ? ` · est. 1RM ${p.e1rm} kg` : '';
     return `<div class="kv"><span>${esc(fmtDate(p.t))}</span><b>${setTxt}${e}</b></div>`;
   }).join('');
 

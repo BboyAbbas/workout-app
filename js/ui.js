@@ -97,22 +97,32 @@ export function toast(msg) {
   toastTimer = setTimeout(() => el.remove(), 1900);
 }
 
-/** Summarise a set list as "3×10 @ 20" style text. Falls back to a per-set
- *  list ("10@60, 10@60, 8@70") when reps OR weights differ across sets, so a
- *  mixed-weight session isn't misreported as all one weight. */
+/**
+ * Plain-language summary of a set list — units always shown, no mental math.
+ *   same reps + weight   -> "3 sets of 10 reps · 12.5 kg"
+ *   same weight, reps differ -> "8, 8, 7 reps · 12.5 kg"   (weight stated once)
+ *   weights differ        -> "8 reps · 12.5 kg, 6 reps · 15 kg"  (per set)
+ *   bodyweight            -> drops the "· N kg" part
+ */
 export function summariseSets(sets) {
   if (!sets || !sets.length) return '';
   const done = sets.filter((s) => s.reps != null && s.reps !== '');
   if (!done.length) return '';
+  const wNum = (s) => (s.weight == null || s.weight === '' ? 0 : +s.weight);
   const reps = done.map((s) => s.reps);
-  const weights = done.map((s) => s.weight).filter((w) => w != null && w !== '' && +w > 0);
+  const weights = done.map(wNum);
   const sameReps = reps.every((r) => r === reps[0]);
-  const sameWeight = weights.length === 0 || weights.every((w) => +w === +weights[0]);
-  if (sameReps && sameWeight) {
-    const w = weights[0];
-    return w ? `${reps.length}×${reps[0]} @ ${w}` : `${reps.length}×${reps[0]}`;
+  const sameWeight = weights.every((w) => w === weights[0]);
+  const loaded = weights.some((w) => w > 0);
+
+  if (sameWeight) {
+    const repPart = sameReps
+      ? `${done.length} ${done.length === 1 ? 'set' : 'sets'} of ${reps[0]} reps`
+      : `${reps.join(', ')} reps`;
+    return loaded ? `${repPart} · ${weights[0]} kg` : repPart;
   }
+  // weights differ across sets — list each one with full units
   return done
-    .map((s) => (s.weight && +s.weight > 0 ? `${s.reps}@${s.weight}` : `${s.reps}`))
+    .map((s) => (wNum(s) ? `${s.reps} reps · ${wNum(s)} kg` : `${s.reps} reps`))
     .join(', ');
 }
