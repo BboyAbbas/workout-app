@@ -567,8 +567,11 @@ function screenRun(planId) {
     const durationSec = Math.round((endedAt - active.startedAt) / 1000);
     const entries = order.map((exId) => {
       const en = active.entries[exId];
+      // Only sets the user actually logged (pressed "Log set") count. Prefilled
+      // recommendation values are NOT performance, so an exercise that was never
+      // logged saves no entry and won't drive next time's recommendation.
       const sets = en.sets
-        .filter((s) => s.reps !== '' && s.reps != null)
+        .filter((s) => s.done)
         .map((s) => ({ reps: num(s.reps, 0), weight: num(s.weight, 0) }));
       return { exerciseId: exId, name: en.name, sets };
     }).filter((e) => e.sets.length);

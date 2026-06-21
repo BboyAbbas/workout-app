@@ -103,6 +103,45 @@ function check(cond, msg) {
   const muscleTxt = (await page.locator('.mbar-top').first().textContent()) || '';
   check(/Legs|Back|Chest|Shoulders|Arms|Core|Other/.test(muscleTxt), `muscle group shown (${muscleTxt.trim()})`);
 
+  console.log('\n[7c] Only LOGGED sets are saved (prefilled-but-unlogged must not count)');
+  // fresh state, fresh plan
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="0"]');
+  await page.locator('[data-tpl="0"]').click();          // Full Body
+  await page.waitForSelector('[data-run]');
+  // session 1: log ONLY the first exercise (Squat), finish
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  let r1 = page.locator('.run-ex').nth(0).locator('.set-row').first();
+  await r1.locator('[data-f="weight"]').fill('40');
+  await r1.locator('[data-f="reps"]').fill('12');
+  await r1.locator('[data-f="reps"]').click();
+  await page.locator('#logbtn').click();
+  await page.waitForTimeout(150);
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row');
+  const s1 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
+  check(s1.length === 1 && s1[0].entries.length === 1 && s1[0].entries[0].name === 'Squat',
+    `session 1 saved only the logged exercise (entries=${s1[0] ? s1[0].entries.map(e => e.name).join(',') : 'none'})`);
+
+  // session 2: start again; Squat is now PREFILLED with a recommendation but
+  // log NOTHING. Finishing must save no new session.
+  page.once('dialog', (d) => d.accept()); // "No sets logged. Finish anyway?"
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.run-ex .rec');
+  const prefRep = await page.locator('.run-ex').nth(0).locator('[data-f="reps"]').first().inputValue();
+  check(prefRep !== '', `recommendation prefilled the reps box (${prefRep}) without logging`);
+  await page.locator('#finish').click();
+  await page.waitForTimeout(200);
+  const s2 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
+  check(s2.length === 1, `unlogged workout saved nothing (sessions still ${s2.length}, expected 1)`);
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
