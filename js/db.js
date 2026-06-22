@@ -53,8 +53,32 @@ export function newExercise() {
   // reps is a RANGE (repMin..repMax) so progression can use double-progression:
   // push reps to the top of the range, then add weight. `reps` is kept = repMax
   // for backward-compatibility with any older read paths.
-  return { id: uid(), name: '', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 };
+  return { id: uid(), name: '', kind: 'strength', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 };
 }
+
+/* ---------- cardio (treadmill / stairmaster) ----------
+   Cardio exercises log MACHINE SETTINGS per set instead of weight/reps. */
+export const CARDIO_KINDS = {
+  treadmill: {
+    label: 'Treadmill',
+    fields: [
+      { key: 'incline', label: 'Incline', ph: 'incl' },
+      { key: 'speed', label: 'Speed', ph: 'speed' },
+      { key: 'minutes', label: 'Min', ph: 'min' },
+    ],
+  },
+  stairmaster: {
+    label: 'StairMaster',
+    fields: [
+      { key: 'level', label: 'Level', ph: 'level' },
+      { key: 'minutes', label: 'Min', ph: 'min' },
+    ],
+  },
+};
+export function isCardio(e) { return !!(e && e.kind && e.kind !== 'strength'); }
+export function cardioFields(kind) { return (CARDIO_KINDS[kind] || {}).fields || []; }
+/** The required field for a cardio kind (what must be filled to log a set). */
+export function cardioRequiredKey(kind) { return 'minutes'; }
 
 export const DEFAULT_REST = 90; // seconds, used when an exercise has none set
 export const DEFAULT_INC = 2.5; // kg added when an exercise graduates the rep range
@@ -175,6 +199,7 @@ export function progressForExercise(name) {
   for (const s of [...getSessions()].reverse()) { // getSessions is newest-first
     const entry = (s.entries || []).find((e) => (e.name || '').toLowerCase() === key);
     if (!entry || !entry.sets || !entry.sets.length) continue;
+    if (entry.kind && entry.kind !== 'strength') continue; // cardio isn't a strength curve
     let topWeight = 0, topReps = 0, bestE = 0, volume = 0;
     for (const set of entry.sets) {
       const w = Number(set.weight) || 0, r = Number(set.reps) || 0;
@@ -210,7 +235,8 @@ export function isStalled(values) {
 /** One row per exercise with logged history (Records + stalls), best metric first. */
 export function exerciseProgressSummary() {
   const names = new Set();
-  for (const s of getSessions()) for (const e of (s.entries || [])) if (e.name) names.add(e.name);
+  for (const s of getSessions()) for (const e of (s.entries || []))
+    if (e.name && !(e.kind && e.kind !== 'strength')) names.add(e.name);
   const rows = [];
   for (const name of names) {
     const points = progressForExercise(name);
@@ -237,6 +263,7 @@ export function exerciseProgressSummary() {
 export function newPRsIn(entries) {
   const prs = [];
   for (const e of (entries || [])) {
+    if (e.kind && e.kind !== 'strength') continue; // cardio has no 1RM/rep PR
     const pts = progressForExercise(e.name);
     if (!pts.length) continue; // first time logging this exercise isn't a "PR"
     let curE = 0, curReps = 0, curW = 0;
@@ -306,6 +333,13 @@ export const TEMPLATES = [
       { name: 'Calf Raise', sets: 4, repMin: 12, repMax: 20, reps: 20, weight: 0 },
     ],
   },
+  {
+    name: 'Cardio',
+    exercises: [
+      { name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 },
+      { name: 'StairMaster', kind: 'stairmaster', sets: 1, rest: 0 },
+    ],
+  },
 ];
 
 /** Build a real plan object from a template by name. */
@@ -326,6 +360,7 @@ export const MUSCLES = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'O
 export function muscleFor(name) {
   const n = ' ' + String(name || '').toLowerCase() + ' ';
   const has = (...k) => k.some((x) => n.includes(x));
+  if (has('treadmill', 'stairmaster', 'stair master', 'incline walk', 'run', 'running', 'jog', 'elliptical', 'cycle', 'cycling', 'bike', 'rower', 'rowing', 'cardio')) return 'Cardio';
   if (has('plank', 'crunch', 'sit-up', 'situp', 'ab ', 'abs', 'leg raise', 'knee raise', 'russian twist', 'hollow', 'oblique')) return 'Core';
   if (has('upright row', 'overhead press', 'ohp', 'shoulder', 'lateral raise', 'military', 'arnold', 'rear delt', 'shrug')) return 'Shoulders';
   if (has('leg press', 'leg curl', 'leg extension', 'squat', 'lunge', 'calf', 'romanian', 'rdl', 'hip thrust', 'glute', 'hamstring', 'quad', 'step-up', 'step up')) return 'Legs';

@@ -126,3 +126,19 @@ export function summariseSets(sets) {
     .map((s) => (wNum(s) ? `${s.reps} reps · ${wNum(s)} kg` : `${s.reps} reps`))
     .join(', ');
 }
+
+/**
+ * Plain-language summary of cardio sets, e.g. "incline 12 · speed 3 · 30 min".
+ * `fields` is the kind's field list ([{key,label}]) passed in by the caller so
+ * this stays decoupled from the data layer.
+ */
+export function summariseCardio(sets, fields) {
+  const done = (sets || []).filter((s) => s && s.minutes != null && s.minutes !== '');
+  if (!done.length) return '';
+  const one = (s) => (fields || []).map((f) => {
+    const v = s[f.key];
+    if (v == null || v === '') return null;
+    return f.key === 'minutes' ? `${v} min` : `${f.label.toLowerCase()} ${v}`;
+  }).filter(Boolean).join(' · ');
+  return done.map(one).join(', ');
+}

@@ -270,6 +270,40 @@ function check(cond, msg) {
   const restored = await page.waitForSelector('#rest-host .card', { timeout: 4000 }).then(() => true).catch(() => false);
   check(restored, 'rest countdown restored after a full reload');
 
+  console.log('\n[7h] Cardio (treadmill / stairmaster) logging');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="4"]');            // Cardio template
+  await page.locator('[data-tpl="4"]').click();
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  const tre = page.locator('.run-ex').nth(0);              // Incline Walk (treadmill)
+  check((await tre.locator('[data-f=incline]').count()) >= 1
+    && (await tre.locator('[data-f=speed]').count()) >= 1
+    && (await tre.locator('[data-f=minutes]').count()) >= 1, 'treadmill shows incline/speed/min inputs');
+  const trow = tre.locator('.set-row').first();
+  await trow.locator('[data-f=incline]').fill('12');
+  await trow.locator('[data-f=speed]').fill('3');
+  await trow.locator('[data-f=minutes]').fill('30');
+  await trow.locator('[data-f=minutes]').click();
+  await page.locator('#logbtn').click();
+  await page.waitForTimeout(150);
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row');
+  const cs = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
+  const tEntry = cs[0] && cs[0].entries.find((e) => e.kind === 'treadmill');
+  check(tEntry && tEntry.sets[0].incline === 12 && tEntry.sets[0].speed === 3 && tEntry.sets[0].minutes === 30,
+    'treadmill set saved with machine settings (incline/speed/min)');
+  await page.locator('.hist-row').first().click();
+  await page.waitForSelector('.card');
+  check((await page.locator('text=30 min').count()) >= 1, 'session detail shows cardio settings in plain units');
+  await page.goto(BASE + '/#/insights');
+  await page.waitForSelector('.stat-grid');
+  check((await page.locator('[data-ex]').count()) === 0, 'cardio is not listed as a strength record');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

@@ -7,7 +7,7 @@
 import * as DB from './db.js';
 import {
   esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
-  icons, toast, summariseSets,
+  icons, toast, summariseSets, summariseCardio,
 } from './ui.js';
 
 const app = document.getElementById('app');
@@ -206,14 +206,24 @@ function screenPlan(id) {
         ? `<div class="empty"><p>No exercises yet.</p></div>`
         : p.exercises.map((e) => {
             const lt = DB.lastEntryForExercise(e.id, e.name);
-            const ltTxt = lt ? summariseSets(lt) : '';
-            const rng = DB.repRange(e);
-            const repTxt = rng.min === rng.max ? `${rng.max}` : `${rng.min}–${rng.max}`;
+            const cardio = DB.isCardio(e);
+            const ltTxt = lt ? (cardio ? summariseCardio(lt, DB.cardioFields(e.kind)) : summariseSets(lt)) : '';
+            let targetTxt;
+            if (cardio) {
+              targetTxt = `${(DB.CARDIO_KINDS[e.kind] || {}).label || 'Cardio'} · settings logged each time`;
+            } else {
+              const rng = DB.repRange(e);
+              const repTxt = rng.min === rng.max ? `${rng.max}` : `${rng.min}–${rng.max}`;
+              targetTxt = `Target ${e.sets} × ${repTxt} reps${e.weight ? ` · ${e.weight} kg` : ''}`;
+            }
+            // only strength exercises link to the strength-progress chart
+            const cls = cardio ? 'card' : 'card tappable';
+            const dataEx = cardio ? '' : ` data-ex="${esc(e.name || '')}"`;
             return `
-              <div class="card tappable" data-ex="${esc(e.name || '')}">
+              <div class="${cls}"${dataEx}>
                 <p class="name" style="margin:0 0 4px;font-weight:620">${esc(e.name || 'Exercise')}</p>
                 <p class="desc" style="margin:0;color:var(--muted)">
-                  Target ${e.sets} × ${repTxt} reps${e.weight ? ` · ${e.weight} kg` : ''}
+                  ${targetTxt}
                   ${ltTxt ? `<br>last time: <b style="color:var(--accent)">${esc(ltTxt)}</b>` : ''}
                 </p>
               </div>`;
@@ -275,18 +285,23 @@ function screenEditor(id) {
     function readRows() {
       qsa('.ex-row').forEach((row) => {
         const i = +row.dataset.i;
-        plan.exercises[i].name = row.querySelector('[data-f=name]').value;
-        plan.exercises[i].sets = num(row.querySelector('[data-f=sets]').value, 1);
-        let lo = num(row.querySelector('[data-f=repMin]').value, 0);
-        let hi = num(row.querySelector('[data-f=repMax]').value, 0);
-        if (hi <= 0) hi = lo;            // only one filled -> single target
-        if (lo <= 0) lo = hi;
-        if (lo > hi) { const t = lo; lo = hi; hi = t; } // tolerate swapped entry
-        plan.exercises[i].repMin = lo;
-        plan.exercises[i].repMax = hi;
-        plan.exercises[i].reps = hi;     // keep legacy field = top of range
-        plan.exercises[i].weight = num(row.querySelector('[data-f=weight]').value, 0);
-        plan.exercises[i].rest = num(row.querySelector('[data-f=rest]').value, DB.DEFAULT_REST);
+        const ex = plan.exercises[i];
+        ex.name = row.querySelector('[data-f=name]').value;
+        const kindSel = row.querySelector('[data-f=kind]');
+        if (kindSel) ex.kind = kindSel.value;
+        ex.sets = num(row.querySelector('[data-f=sets]')?.value, 1);
+        ex.rest = num(row.querySelector('[data-f=rest]')?.value, DB.DEFAULT_REST);
+        if (!DB.isCardio(ex)) { // strength-only fields (cardio rows don't render them)
+          let lo = num(row.querySelector('[data-f=repMin]')?.value, 0);
+          let hi = num(row.querySelector('[data-f=repMax]')?.value, 0);
+          if (hi <= 0) hi = lo;            // only one filled -> single target
+          if (lo <= 0) lo = hi;
+          if (lo > hi) { const t = lo; lo = hi; hi = t; } // tolerate swapped entry
+          ex.repMin = lo;
+          ex.repMax = hi;
+          ex.reps = hi;                    // keep legacy field = top of range
+          ex.weight = num(row.querySelector('[data-f=weight]')?.value, 0);
+        }
       });
     }
 
@@ -295,6 +310,10 @@ function screenEditor(id) {
       plan.exercises.push(DB.newExercise());
       render();
     });
+
+    // switching Strength <-> Treadmill/StairMaster swaps which fields show
+    qsa('[data-f=kind]').forEach((sel) =>
+      sel.addEventListener('change', () => { readRows(); render(); }));
 
     qsa('.ex-del').forEach((b) =>
       b.addEventListener('click', () => {
@@ -324,19 +343,34 @@ function screenEditor(id) {
   }
 
   function exerciseRow(e, i) {
+    const kind = e.kind || 'strength';
+    const cardio = DB.isCardio(e);
     const rng = DB.repRange(e);
+    const kindOpts = [['strength', 'Strength'], ...Object.entries(DB.CARDIO_KINDS).map(([k, v]) => [k, v.label])]
+      .map(([v, l]) => `<option value="${v}" ${v === kind ? 'selected' : ''}>${l}</option>`).join('');
+    const settings = cardio
+      ? `<div class="num-grid">
+          <div class="field"><label>Sets</label><input class="input" data-f="sets" inputmode="numeric" value="${esc(e.sets ?? 1)}" /></div>
+          <div class="field" style="grid-column:span 2"><label>Logged each workout</label>
+            <input class="input" disabled style="opacity:.6" value="${esc(DB.cardioFields(kind).map((f) => f.label).join(' · '))}" /></div>
+        </div>`
+      : `<div class="num-grid num-grid-4">
+          <div class="field"><label>Sets</label><input class="input" data-f="sets" inputmode="numeric" value="${esc(e.sets)}" /></div>
+          <div class="field"><label>Rep min</label><input class="input" data-f="repMin" inputmode="numeric" value="${esc(rng.min)}" /></div>
+          <div class="field"><label>Rep max</label><input class="input" data-f="repMax" inputmode="numeric" value="${esc(rng.max)}" /></div>
+          <div class="field"><label>Weight</label><input class="input" data-f="weight" inputmode="decimal" value="${esc(e.weight)}" /></div>
+        </div>`;
     return `
       <div class="ex-row" data-i="${i}">
         <div class="ex-row-head">
           <input class="input" data-f="name" placeholder="Exercise name" value="${esc(e.name)}" />
           <button class="icon-btn ex-del" data-i="${i}" aria-label="Remove">${icons.trash}</button>
         </div>
-        <div class="num-grid num-grid-4">
-          <div class="field"><label>Sets</label><input class="input" data-f="sets" inputmode="numeric" value="${esc(e.sets)}" /></div>
-          <div class="field"><label>Rep min</label><input class="input" data-f="repMin" inputmode="numeric" value="${esc(rng.min)}" /></div>
-          <div class="field"><label>Rep max</label><input class="input" data-f="repMax" inputmode="numeric" value="${esc(rng.max)}" /></div>
-          <div class="field"><label>Weight</label><input class="input" data-f="weight" inputmode="decimal" value="${esc(e.weight)}" /></div>
+        <div class="field" style="margin:0 0 10px">
+          <label>Type</label>
+          <select class="input" data-f="kind">${kindOpts}</select>
         </div>
+        ${settings}
         <div class="spacer"></div>
         <div class="field" style="margin:0">
           <label>Rest between sets (seconds)</label>
@@ -369,6 +403,23 @@ function startRun(planId) {
   const entries = {};
   for (const e of plan.exercises) {
     const last = DB.lastEntryForExercise(e.id, e.name) || [];
+
+    // CARDIO (treadmill / stairmaster): log machine settings, prefilled from
+    // last time. No rep/weight recommendation — just beat your own numbers.
+    if (DB.isCardio(e)) {
+      const fields = DB.cardioFields(e.kind);
+      const sets = Array.from({ length: Math.max(1, e.sets || 1) }, (_, i) => {
+        const s = { done: false };
+        for (const f of fields) s[f.key] = last[i]?.[f.key] ?? '';
+        return s;
+      });
+      entries[e.id] = {
+        exerciseId: e.id, name: e.name, kind: e.kind, fields,
+        rest: e.rest ?? 0, targetSets: e.sets || 1, sets,
+      };
+      continue;
+    }
+
     const range = DB.repRange(e);
     const rec = DB.recommendNext(last.length ? last : null, range, DB.DEFAULT_INC, e.sets);
     // Prefill each set with LAST TIME's numbers so there's no math to redo. The
@@ -388,6 +439,7 @@ function startRun(planId) {
     entries[e.id] = {
       exerciseId: e.id,
       name: e.name,
+      kind: 'strength',
       rest: e.rest ?? DB.DEFAULT_REST,
       targetSets: e.sets,
       repMin: range.min,
@@ -449,6 +501,31 @@ function screenRun(planId) {
     const exHtml = order.map((exId) => {
       const en = active.entries[exId];
       if (!en) return '';
+
+      // CARDIO row: one input per machine setting, prefilled from last time.
+      if (DB.isCardio(en)) {
+        const fields = en.fields || DB.cardioFields(en.kind);
+        const cols = `grid-template-columns:40px repeat(${fields.length},1fr)`;
+        const crows = en.sets.map((s, si) => {
+          const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
+          const inputs = fields.map((f) =>
+            `<div class="cell"><input class="input" data-f="${f.key}" inputmode="decimal" placeholder="${esc(f.ph)}" value="${esc(s[f.key] ?? '')}" /></div>`).join('');
+          return `
+          <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}" style="${cols}">
+            <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
+            ${inputs}
+          </div>`;
+        }).join('');
+        const chip = (DB.CARDIO_KINDS[en.kind] || {}).label || 'Cardio';
+        return `
+          <div class="card run-ex">
+            <p class="name">${esc(en.name)} <span class="kind-chip">${esc(chip)}</span></p>
+            <div class="hint-cols" style="${cols}"><span>#</span>${fields.map((f) => `<span>${esc(f.label)}</span>`).join('')}</div>
+            ${crows}
+            <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
+          </div>`;
+      }
+
       const rec = en.rec || { dir: 'first' };
       const upW = rec.dir === 'up' && rec.newWeight != null;
       const holdR = rec.dir === 'hold' && rec.targetReps != null;
@@ -613,7 +690,7 @@ function screenRun(planId) {
       b.addEventListener('click', () => {
         const en = active.entries[b.dataset.addset];
         const prev = en.sets[en.sets.length - 1] || {};
-        en.sets.push({ reps: prev.reps ?? '', weight: prev.weight ?? '', done: false });
+        en.sets.push({ ...prev, done: false }); // carry prev fields (reps/weight or cardio settings)
         persist();
         render();
       }));
@@ -635,18 +712,18 @@ function screenRun(planId) {
     const en = active.entries[exId];
     const s = en.sets[si];
     const row = app.querySelector(`.set-row[data-ex="${exId}"][data-si="${si}"]`);
-    if (row) {
-      s.reps = row.querySelector('[data-f=reps]').value;
-      s.weight = row.querySelector('[data-f=weight]').value;
-    }
-    if (s.reps === '' || s.reps == null) {
-      toast('Enter reps first');
-      if (row) row.querySelector('[data-f=reps]').focus();
+    if (row) row.querySelectorAll('.input').forEach((inp) => { s[inp.dataset.f] = inp.value; });
+    // cardio needs minutes; strength needs reps
+    const reqKey = DB.isCardio(en) ? 'minutes' : 'reps';
+    if (s[reqKey] === '' || s[reqKey] == null) {
+      toast(`Enter ${reqKey} first`);
+      if (row) row.querySelector(`[data-f=${reqKey}]`)?.focus();
       return;
     }
     s.done = true;
     persist();
-    startRest(en.rest || DB.DEFAULT_REST, exId);
+    const restSecs = en.rest != null ? en.rest : DB.DEFAULT_REST; // cardio rest 0 -> no timer
+    if (restSecs > 0) startRest(restSecs, exId);
     activeSel = firstPending(); // advance to the next unlogged set (null when done)
     render();
   }
@@ -660,10 +737,15 @@ function screenRun(planId) {
       // Only sets the user actually logged (pressed "Log set") count. Prefilled
       // recommendation values are NOT performance, so an exercise that was never
       // logged saves no entry and won't drive next time's recommendation.
+      const cardio = DB.isCardio(en);
+      const fields = cardio ? (en.fields || DB.cardioFields(en.kind)) : null;
       const sets = en.sets
         .filter((s) => s.done)
-        .map((s) => ({ reps: num(s.reps, 0), weight: num(s.weight, 0) }));
-      return { exerciseId: exId, name: en.name, sets };
+        .map((s) => {
+          if (cardio) { const o = {}; for (const f of fields) o[f.key] = num(s[f.key], 0); return o; }
+          return { reps: num(s.reps, 0), weight: num(s.weight, 0) };
+        });
+      return { exerciseId: exId, name: en.name, kind: en.kind || 'strength', sets };
     }).filter((e) => e.sets.length);
 
     if (!entries.length) {
@@ -761,15 +843,24 @@ function screenSession(sessionId) {
           <div style="font-size:26px;font-weight:700">${s.entries.reduce((a, e) => a + e.sets.length, 0)}</div>
         </div>
       </div>
-      ${s.entries.map((e) => `
+      ${s.entries.map((e) => {
+        const cardio = DB.isCardio(e);
+        const fields = cardio ? DB.cardioFields(e.kind) : null;
+        return `
         <div class="card">
           <p class="name" style="margin:0 0 8px;font-weight:620">${esc(e.name)}</p>
-          ${e.sets.map((set, i) => `
+          ${e.sets.map((set, i) => {
+            const detail = cardio
+              ? (summariseCardio([set], fields) || '—')
+              : `${esc(set.reps)} reps${set.weight ? ` · ${esc(set.weight)} kg` : ''}`;
+            return `
             <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
               <span style="color:var(--muted)">Set ${i + 1}</span>
-              <span style="font-weight:600">${esc(set.reps)} reps${set.weight ? ` · ${esc(set.weight)} kg` : ''}</span>
-            </div>`).join('')}
-        </div>`).join('')}
+              <span style="font-weight:600">${detail}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('')}
       <div class="spacer"></div>
     </main>
   `);

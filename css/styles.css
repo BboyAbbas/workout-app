@@ -211,6 +211,9 @@ input, select { font-family: inherit; }
 }
 .run-legend { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
 .run-legend .rec-goal { margin-left: 0; }
+/* cardio: neutral type chip + native select styled like an input */
+.kind-chip { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-2); padding: 2px 9px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+select.input { appearance: none; -webkit-appearance: none; background-image: none; }
 
 .set-row {
   display: grid;
