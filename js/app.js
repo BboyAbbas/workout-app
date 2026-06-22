@@ -1239,6 +1239,12 @@ function screenInsights() {
    SCREEN: Settings — backup / restore / reset
    ============================================================ */
 function screenSettings() {
+  const notifStatusText = () => {
+    if (!('Notification' in window)) return 'Not supported on this browser';
+    if (Notification.permission === 'granted') return 'On';
+    if (Notification.permission === 'denied') return 'Blocked — turn it on in this site’s notification settings';
+    return 'Off — tap Enable below';
+  };
   mount(`
     ${topbar('Settings', { back: '#/' })}
     <main class="screen">
@@ -1247,6 +1253,16 @@ function screenSettings() {
         <div class="kv"><span>Plans</span><b>${DB.getPlans().length}</b></div>
         <div class="kv"><span>Logged workouts</span><b>${DB.getSessions().length}</b></div>
       </div>
+
+      <div class="section-label">Rest alerts</div>
+      <div class="card">
+        <div class="kv"><span>Status</span><b id="notif-status">${esc(notifStatusText())}</b></div>
+      </div>
+      <button class="btn btn-block" id="notif-enable">${icons.check} Enable rest alerts</button>
+      <div class="spacer"></div>
+      <button class="btn btn-block" id="notif-test">Test alert now</button>
+      <div class="spacer"></div>
+      <button class="btn btn-block" id="notif-test-lock">Test lock-screen alert — lock phone after tapping</button>
 
       <div class="section-label">Cloud sync</div>
       <div class="card">
@@ -1269,6 +1285,29 @@ function screenSettings() {
       <div class="spacer"></div>
     </main>
   `);
+
+  const refreshNotif = () => { const el = qs('#notif-status'); if (el) el.textContent = notifStatusText(); };
+  qs('#notif-enable').addEventListener('click', async () => {
+    if (!('Notification' in window)) { toast('Not supported on this browser'); return; }
+    try {
+      const res = await Notification.requestPermission(); // this is the "Allow" prompt
+      refreshNotif();
+      if (res === 'granted') { await ensurePushSubscribed(); toast('Rest alerts on'); }
+      else if (res === 'denied') toast('Blocked — enable it in site settings');
+      else toast('Not enabled yet — tap again');
+    } catch (_) { toast('Could not enable'); }
+  });
+  qs('#notif-test').addEventListener('click', () => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Enable rest alerts first'); return; }
+    unlockAudio(); playBeep(); notifyRestDone();
+    toast('Sent a test alert');
+  });
+  qs('#notif-test-lock').addEventListener('click', async () => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Enable rest alerts first'); return; }
+    await ensurePushSubscribed();
+    scheduleServerRestAlert(Date.now() + 6000);
+    toast('Lock your phone now — alert in ~6s');
+  });
 
   qs('#syncnow').addEventListener('click', async () => {
     toast('Syncing…');
