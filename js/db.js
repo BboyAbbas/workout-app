@@ -383,6 +383,13 @@ export function exportAll() {
     2
   );
 }
+/** Wipe ALL local data (plans, history, in-progress workout) on this device. */
+export function resetAll() {
+  localStorage.removeItem(KEY_PLANS);
+  localStorage.removeItem(KEY_SESSIONS);
+  localStorage.removeItem(KEY_ACTIVE);
+}
+
 export function importAll(json) {
   const data = typeof json === 'string' ? JSON.parse(json) : json;
   if (!data || typeof data !== 'object') throw new Error('Invalid backup file');

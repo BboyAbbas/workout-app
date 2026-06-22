@@ -44,6 +44,13 @@ function mount(html) { app.innerHTML = html; app.firstElementChild?.classList.ad
 function num(v, fallback = 0) { const n = parseFloat(v); return Number.isFinite(n) ? n : fallback; }
 function qs(sel) { return app.querySelector(sel); }
 function qsa(sel) { return Array.from(app.querySelectorAll(sel)); }
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function topbar(title, { back = null, sub = '', right = '' } = {}) {
   return `
@@ -130,7 +137,8 @@ function screenHome() {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
       right: `
         <button class="icon-btn" data-nav="#/insights" aria-label="Insights">${icons.chart}</button>
-        <button class="icon-btn" data-nav="#/history" aria-label="History">${icons.history}</button>`,
+        <button class="icon-btn" data-nav="#/history" aria-label="History">${icons.history}</button>
+        <button class="icon-btn" data-nav="#/settings" aria-label="Settings">${icons.gear}</button>`,
     })}
     <main class="screen">
       ${resumeBar}
@@ -1104,6 +1112,53 @@ function screenInsights() {
 }
 
 /* ============================================================
+   SCREEN: Settings — backup / restore / reset
+   ============================================================ */
+function screenSettings() {
+  mount(`
+    ${topbar('Settings', { back: '#/' })}
+    <main class="screen">
+      <div class="section-label">Your data</div>
+      <div class="card">
+        <div class="kv"><span>Plans</span><b>${DB.getPlans().length}</b></div>
+        <div class="kv"><span>Logged workouts</span><b>${DB.getSessions().length}</b></div>
+      </div>
+
+      <div class="section-label">Backup</div>
+      <p class="desc" style="color:var(--muted);margin:0 0 10px;font-size:13px">Export a file to back up, move to another device, or send for analysis.</p>
+      <button class="btn btn-block" id="export">${icons.chart} Export backup (.json)</button>
+      <div class="spacer"></div>
+      <button class="btn btn-block" id="import-btn">${icons.plus} Import backup</button>
+      <input type="file" id="import-file" accept="application/json,.json" hidden />
+
+      <div class="spacer"></div><div class="spacer"></div>
+      <div class="section-label">Danger zone</div>
+      <button class="btn btn-danger btn-block" id="reset">${icons.trash} Reset all data</button>
+      <div class="spacer"></div>
+    </main>
+  `);
+
+  qs('#export').addEventListener('click', () => {
+    downloadText('workout-backup.json', DB.exportAll());
+    toast('Backup downloaded');
+  });
+  qs('#import-btn').addEventListener('click', () => qs('#import-file').click());
+  qs('#import-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { DB.importAll(await f.text()); toast('Backup imported'); go('#/'); }
+    catch (_) { toast('Could not read that file'); }
+  });
+  qs('#reset').addEventListener('click', () => {
+    if (!confirm('Delete ALL plans and workout history on this device? This cannot be undone.')) return;
+    if (!confirm('Really reset? Everything on this device will be erased.')) return;
+    DB.resetAll();
+    toast('All data reset');
+    go('#/');
+  });
+}
+
+/* ============================================================
    Router
    ============================================================ */
 function router() {
@@ -1117,6 +1172,7 @@ function router() {
   if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'session') return screenSession(parts[1]);
   if (parts[0] === 'exercise') return screenExercise(decodeURIComponent(parts.slice(1).join('/')));
+  if (parts[0] === 'settings') return screenSettings();
   if (parts[0] === 'template') return screenTemplate(parts[1]);
   if (parts[0] === 'plan') {
     if (parts[1] === 'new') return screenEditor('new');

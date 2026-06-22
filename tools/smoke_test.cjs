@@ -304,6 +304,29 @@ function check(cond, msg) {
   await page.waitForSelector('.stat-grid');
   check((await page.locator('[data-ex]').count()) === 0, 'cardio is not listed as a strength record');
 
+  console.log('\n[7i] Settings: export present + reset wipes all data');
+  // seed something first
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="0"]');
+  await page.locator('[data-tpl="0"]').click();
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('[data-run]');
+  await page.goto(BASE + '/#/settings');
+  await page.waitForSelector('#export');
+  check(await page.locator('#export').isVisible(), 'export button present');
+  check(await page.locator('#reset').isVisible(), 'reset button present');
+  const acc = (d) => d.accept();
+  page.on('dialog', acc); // two confirms
+  await page.locator('#reset').click();
+  await page.waitForTimeout(200);
+  page.off('dialog', acc);
+  const wiped = await page.evaluate(() => ({
+    p: localStorage.getItem('wt_plans_v1'), s: localStorage.getItem('wt_sessions_v1'),
+  }));
+  check(!wiped.p && !wiped.s, 'reset cleared plans + sessions');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
