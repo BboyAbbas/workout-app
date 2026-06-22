@@ -42,11 +42,10 @@ const check = (c, m) => { console.log((c ? '  PASS: ' : '  FAIL: ') + m); if (!c
     navigator.serviceWorker.ready.then(() => true).catch(() => false));
   check(sw, 'service worker registered (offline-ready)');
 
-  // core flow
+  // core flow — plans auto-load on a fresh device
   await page.evaluate(() => localStorage.clear());
-  await page.reload(); await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.reload(); await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');

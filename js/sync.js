@@ -62,7 +62,9 @@ function schedulePush() {
   pushTimer = setTimeout(push, 1500); // debounce bursts of edits
 }
 
-/** Wire up sync. `onRemoteApplied` re-renders the current screen after a pull. */
+/** Wire up sync. `onRemoteApplied` re-renders the current screen after a pull.
+ *  Returns the initial pull promise so the caller can seed defaults if, after
+ *  pulling, there's still no data. */
 export function initSync(onRemoteApplied) {
   onApplied = onRemoteApplied;
   window.addEventListener('wt-changed', schedulePush);
@@ -72,6 +74,7 @@ export function initSync(onRemoteApplied) {
   });
   // flush a pending push before the app is hidden/closed
   window.addEventListener('pagehide', push);
-  pull();        // pull newest on startup
-  schedulePush(); // and push anything local that isn't in the cloud yet
+  const initial = pull();   // pull newest on startup
+  schedulePush();           // and push anything local that isn't in the cloud yet
+  return initial;
 }

@@ -380,6 +380,12 @@ export function planFromTemplate(tpl) {
   };
 }
 
+/** Create all of the program's plans as real saved plans (used to auto-load
+ *  the workouts on a fresh/empty device so there's no "add from template" step). */
+export function seedDefaultPlans() {
+  for (const tpl of TEMPLATES) savePlan(planFromTemplate(tpl));
+}
+
 /* ---------- muscle grouping (for insights) ---------- */
 // Inferred from the exercise name — zero tagging needed. Order matters:
 // more specific phrases are checked before generic ones.

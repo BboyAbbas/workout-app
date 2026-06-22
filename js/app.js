@@ -82,18 +82,11 @@ function screenHome() {
       <div class="empty">
         <div class="big">${icons.dumbbell}</div>
         <p style="font-size:18px;color:var(--text);font-weight:600">No plans yet</p>
-        <p>Make one yourself, or start from a template.</p>
+        <p>Load your workout plans, or make one yourself.</p>
       </div>
-      <button class="btn btn-primary btn-block" data-nav="#/plan/new">${icons.plus} Create your own</button>
-      <div class="section-label">Templates</div>
-      ${DB.TEMPLATES.map((t, i) => `
-        <div class="card plan-card tappable" data-tpl="${i}">
-          <div class="meta">
-            <p class="name">${esc(t.name)}</p>
-            <p class="desc">${t.exercises.length} exercises · tap to preview</p>
-          </div>
-          <button class="icon-btn" aria-label="Add">${icons.plus}</button>
-        </div>`).join('')}
+      <button class="btn btn-primary btn-block" id="seed-plans">${icons.plus} Load my workout plans</button>
+      <div class="spacer"></div>
+      <button class="btn btn-block" data-nav="#/plan/new">${icons.plus} Create your own</button>
     `;
   } else {
     body = plans.map((p) => {
@@ -121,18 +114,6 @@ function screenHome() {
       <button class="icon-btn btn-primary" style="border-radius:12px">${icons.play}</button>
     </div>` : '';
 
-  // Templates stay reachable once plans exist (tap to add a copy you can edit).
-  const templatesBlock = `
-    <div class="section-label">Add from a template</div>
-    ${DB.TEMPLATES.map((t, i) => `
-      <div class="card plan-card tappable" data-tpl="${i}">
-        <div class="meta">
-          <p class="name">${esc(t.name)}</p>
-          <p class="desc">${t.exercises.length} exercises · tap to add</p>
-        </div>
-        <button class="icon-btn" aria-label="Add">${icons.plus}</button>
-      </div>`).join('')}`;
-
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -144,7 +125,6 @@ function screenHome() {
     <main class="screen">
       ${resumeBar}
       ${body}
-      ${plans.length ? templatesBlock : ''}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
   `);
@@ -156,8 +136,8 @@ function screenHome() {
     }));
   qsa('[data-run]').forEach((b) =>
     b.addEventListener('click', (e) => { e.stopPropagation(); startRun(b.dataset.run); }));
-  qsa('[data-tpl]').forEach((c) =>
-    c.addEventListener('click', () => go('#/template/' + c.dataset.tpl)));
+  const seed = qs('#seed-plans');
+  if (seed) seed.addEventListener('click', () => { DB.seedDefaultPlans(); toast('Workouts loaded'); screenHome(); });
   const r = qs('[data-resume]');
   if (r) r.addEventListener('click', () => go('#/plan/' + active.planId + '/run'));
 }
@@ -1215,4 +1195,8 @@ window.addEventListener('load', router);
 router();
 
 // cloud sync: pull newest on load/focus, push on change. Re-render on remote apply.
-initSync(() => router());
+// After the first pull, if there are still no plans (fresh device / post-reset),
+// auto-load the program's plans so the app is ready with no "add template" step.
+initSync(() => router()).then(() => {
+  if (!DB.getPlans().length) { DB.seedDefaultPlans(); router(); }
+});

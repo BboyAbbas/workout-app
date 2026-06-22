@@ -39,18 +39,18 @@ function check(cond, msg) {
   await page.reload();
   await page.waitForSelector('.topbar');
 
-  console.log('\n[1] Empty state + templates');
-  check(await page.locator('[data-nav="#/plan/new"]').first().isVisible(), 'Create-your-own button shows');
-  check(await page.locator('[data-tpl]').count() >= 3, 'templates listed');
+  console.log('\n[1] Plans auto-load on a fresh device (no template step)');
+  await page.waitForSelector('.plan-card');
+  check((await page.locator('.plan-card').count()) >= 5, 'all program plans auto-loaded');
+  check((await page.locator('[data-tpl]').count()) === 0, 'no "add from template" section');
+  const firstName = (await page.locator('.plan-card .name').first().textContent()) || '';
+  check(firstName.includes('Push'), `first plan is Push (${firstName.trim()})`);
 
-  console.log('\n[2] Add a template plan');
-  await page.locator('[data-tpl="0"]').click();
-  await page.waitForSelector('#tpl-add');                 // preview, NOT auto-added
-  check(/#\/template\//.test(page.url()), 'template opens a preview (not auto-added)');
-  await page.locator('#tpl-add').click();
+  console.log('\n[2] Open a plan');
+  await page.locator('.plan-card').first().click();      // Push
   await page.waitForSelector('[data-run]');
-  check(/#\/plan\//.test(page.url()), 'navigated to plan detail after adding');
-  check(await page.getByText('Start workout').isVisible(), 'Start workout button present');
+  check(/#\/plan\//.test(page.url()), 'navigated to plan detail');
+  check(await page.locator('[data-run]').first().isVisible(), 'Start workout button present');
 
   console.log('\n[3] Shorten rest to 2s via editor');
   await page.locator('[data-nav$="/edit"]').first().click();
@@ -92,10 +92,8 @@ function check(cond, msg) {
   console.log('\n[7] Last-time memory on second run');
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
-  check((await page.locator('[data-tpl]').count()) >= 1, 'templates still reachable from populated home');
   await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
-  check((await page.locator('text=last').count()) >= 0, 'plan detail renders (last-time wired)');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex');
   const rVal = await page.locator('.run-ex').first().locator('[data-f="reps"]').first().inputValue();
@@ -113,15 +111,14 @@ function check(cond, msg) {
   check(/Legs|Back|Chest|Shoulders|Arms|Core|Other/.test(muscleTxt), `muscle group shown (${muscleTxt.trim()})`);
 
   console.log('\n[7c] Only LOGGED sets are saved (prefilled-but-unlogged must not count)');
-  // fresh state, fresh plan
+  // fresh state -> plans auto-load; open Push
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();          // Full Body
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push
   await page.waitForSelector('[data-run]');
-  // session 1: log ONLY the first exercise (Squat), finish
+  // session 1: log ONLY the first exercise, finish
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
   let r1 = page.locator('.run-ex').nth(0).locator('.set-row').first();
@@ -156,9 +153,8 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();          // Full Body (Squat..Row..)
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -195,9 +191,8 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push
   await page.waitForSelector('[data-run]');
   const logSquat = async (wt, rp) => {
     const row = page.locator('.run-ex').nth(0).locator('.set-row').first();
@@ -255,9 +250,8 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -277,9 +271,8 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="1"]');            // Legs day (ends with Incline Walk)
-  await page.locator('[data-tpl="1"]').click();
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').nth(1).click();        // Legs day (ends with Incline Walk)
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -312,10 +305,7 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="0"]');
-  await page.locator('[data-tpl="0"]').click();
-  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
-  await page.waitForSelector('[data-run]');
+  await page.waitForSelector('.plan-card');               // plans auto-load
   await page.goto(BASE + '/#/settings');
   await page.waitForSelector('#export');
   check(await page.locator('#export').isVisible(), 'export button present');
