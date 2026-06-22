@@ -5,6 +5,7 @@
    ============================================================ */
 
 import * as DB from './db.js';
+import { initSync, pull, push } from './sync.js';
 import {
   esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
   icons, toast, summariseSets, summariseCardio,
@@ -1124,6 +1125,14 @@ function screenSettings() {
         <div class="kv"><span>Logged workouts</span><b>${DB.getSessions().length}</b></div>
       </div>
 
+      <div class="section-label">Cloud sync</div>
+      <div class="card">
+        <div class="kv"><span>Status</span><b style="color:var(--accent)">On</b></div>
+        <div class="kv"><span>Last change</span><b>${DB.getUpdatedAt() ? esc(fmtDate(DB.getUpdatedAt()) + ' · ' + fmtTime(DB.getUpdatedAt())) : '—'}</b></div>
+      </div>
+      <button class="btn btn-block" id="syncnow">${icons.cloud} Sync now</button>
+
+      <div class="spacer"></div><div class="spacer"></div>
       <div class="section-label">Backup</div>
       <p class="desc" style="color:var(--muted);margin:0 0 10px;font-size:13px">Export a file to back up, move to another device, or send for analysis.</p>
       <button class="btn btn-block" id="export">${icons.chart} Export backup (.json)</button>
@@ -1138,6 +1147,12 @@ function screenSettings() {
     </main>
   `);
 
+  qs('#syncnow').addEventListener('click', async () => {
+    toast('Syncing…');
+    await push(); await pull();
+    toast('Synced');
+    if (location.hash === '#/settings') screenSettings();
+  });
   qs('#export').addEventListener('click', () => {
     downloadText('workout-backup.json', DB.exportAll());
     toast('Backup downloaded');
@@ -1198,3 +1213,6 @@ document.addEventListener('click', (e) => {
 window.addEventListener('hashchange', router);
 window.addEventListener('load', router);
 router();
+
+// cloud sync: pull newest on load/focus, push on change. Re-render on remote apply.
+initSync(() => router());

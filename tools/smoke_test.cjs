@@ -18,6 +18,9 @@ function check(cond, msg) {
     viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
   });
   const page = await ctx.newPage();
+  // never touch the real cloud-sync doc from tests (return empty, no network)
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   // capture console + page errors
   const consoleErrors = [];

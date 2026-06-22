@@ -9,6 +9,7 @@
 const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
+const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
 /* ---------- low level ---------- */
 function read(key, fallback) {
@@ -21,6 +22,23 @@ function read(key, fallback) {
 }
 function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+  // mark data dirty + notify the sync layer when plans/sessions change
+  if (key === KEY_PLANS || key === KEY_SESSIONS) {
+    localStorage.setItem(KEY_UPDATED, String(Date.now()));
+    if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
+  }
+}
+
+/* ---------- cloud-sync hooks ---------- */
+/** ms timestamp of the last local change to plans/sessions (0 if never). */
+export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
+/** The full syncable dataset (what gets pushed to / pulled from the cloud). */
+export function snapshot() { return { plans: getPlans(), sessions: read(KEY_SESSIONS, []) }; }
+/** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
+export function applyRemote(data, ts) {
+  if (data && Array.isArray(data.plans)) localStorage.setItem(KEY_PLANS, JSON.stringify(data.plans));
+  if (data && Array.isArray(data.sessions)) localStorage.setItem(KEY_SESSIONS, JSON.stringify(data.sessions));
+  localStorage.setItem(KEY_UPDATED, String(ts));
 }
 
 export function uid() {
@@ -388,11 +406,14 @@ export function exportAll() {
     2
   );
 }
-/** Wipe ALL local data (plans, history, in-progress workout) on this device. */
+/** Wipe ALL local data (plans, history, in-progress workout) on this device.
+ *  Marks the change so the empty state also syncs to the cloud. */
 export function resetAll() {
   localStorage.removeItem(KEY_PLANS);
   localStorage.removeItem(KEY_SESSIONS);
   localStorage.removeItem(KEY_ACTIVE);
+  localStorage.setItem(KEY_UPDATED, String(Date.now()));
+  if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
 
 export function importAll(json) {

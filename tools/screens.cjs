@@ -10,6 +10,8 @@ const fs = require('fs');
     viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
     deviceScaleFactor: 2,
   })).newPage();
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());

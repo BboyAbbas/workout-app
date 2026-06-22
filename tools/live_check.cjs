@@ -11,6 +11,8 @@ const check = (c, m) => { console.log((c ? '  PASS: ' : '  FAIL: ') + m); if (!c
   const page = await (await browser.newContext({
     viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
   })).newPage();
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   const errs = [];
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
