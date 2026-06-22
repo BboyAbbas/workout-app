@@ -74,6 +74,13 @@ export const CARDIO_KINDS = {
       { key: 'minutes', label: 'Min', ph: 'min' },
     ],
   },
+  bike: {
+    label: 'HIIT Bike',
+    fields: [
+      { key: 'level', label: 'Level', ph: 'level' },
+      { key: 'minutes', label: 'Min', ph: 'min' },
+    ],
+  },
 };
 export function isCardio(e) { return !!(e && e.kind && e.kind !== 'strength'); }
 export function cardioFields(kind) { return (CARDIO_KINDS[kind] || {}).fields || []; }
@@ -296,53 +303,51 @@ export const TEMPLATES = [
   {
     name: 'Push',
     exercises: [
-      { name: 'Incline Barbell Bench', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
-      { name: 'Machine Chest Fly', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
-      { name: 'Seated DB Shoulder Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Rope Triceps Pushdown', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Incline Barbell Bench', sets: 4, repMin: 6, repMax: 8, reps: 8, weight: 0, rest: 180 },
+      { name: 'Machine Chest Fly', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 60 },
+      { name: 'Seated DB Shoulder Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'Rope Triceps Pushdown', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 45 },
+      { name: 'HIIT Bike', kind: 'bike', sets: 1, rest: 0 },
     ],
   },
   {
     name: 'Legs',
     exercises: [
-      { name: 'Smith Machine Squat', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
-      { name: 'Leg Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Leg Extension', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0 },
-      { name: 'Standing Calf Raise', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Smith Machine Squat', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0, rest: 180 },
+      { name: 'Leg Press', sets: 3, repMin: 10, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'Leg Extension', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 60 },
+      { name: 'Standing Calf Raise', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 45 },
+      { name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 },
     ],
   },
   {
     name: 'Pull',
     exercises: [
-      { name: 'Lat Pulldown', sets: 4, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'One-Arm DB Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Face Pulls', sets: 3, repMin: 15, repMax: 20, reps: 20, weight: 0 },
-      { name: 'Hanging Leg Raise', sets: 3, repMin: 10, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Lat Pulldown', sets: 4, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 120 },
+      { name: 'One-Arm DB Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'Face Pulls', sets: 3, repMin: 15, repMax: 20, reps: 20, weight: 0, rest: 45 },
+      { name: 'Hanging Leg Raise', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0, rest: 60 },
+      { name: 'StairMaster', kind: 'stairmaster', sets: 1, rest: 0 },
     ],
   },
   {
     name: 'Upper',
     exercises: [
-      { name: 'Machine Chest Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Seated Cable Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'DB Lateral Raises', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
-      { name: 'DB Hammer Curls', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Machine Chest Press', sets: 3, repMin: 10, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'Seated Cable Row', sets: 3, repMin: 10, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'DB Lateral Raises', sets: 3, repMin: 15, repMax: 20, reps: 20, weight: 0, rest: 45 },
+      { name: 'DB Hammer Curls', sets: 3, repMin: 10, repMax: 12, reps: 12, weight: 0, rest: 60 },
+      { name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 },
     ],
   },
   {
     name: 'Lower',
     exercises: [
-      { name: 'Romanian Deadlift', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
-      { name: 'Walking Lunges', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
-      { name: 'Back Hyperextension', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
-      { name: 'Cable Woodchopper', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
-    ],
-  },
-  {
-    name: 'Cardio',
-    exercises: [
+      { name: 'Romanian Deadlift', sets: 4, repMin: 8, repMax: 10, reps: 10, weight: 0, rest: 120 },
+      { name: 'Walking Lunges', sets: 3, repMin: 10, repMax: 12, reps: 12, weight: 0, rest: 90 },
+      { name: 'Back Hyperextension', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 60 },
+      { name: 'Cable Woodchopper', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 45 },
       { name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 },
-      { name: 'StairMaster', kind: 'stairmaster', sets: 1, rest: 0 },
     ],
   },
 ];

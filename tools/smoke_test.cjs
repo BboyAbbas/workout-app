@@ -274,16 +274,16 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="5"]');            // Cardio template (now last)
-  await page.locator('[data-tpl="5"]').click();
+  await page.waitForSelector('[data-tpl="1"]');            // Legs day (ends with Incline Walk)
+  await page.locator('[data-tpl="1"]').click();
   await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
-  const tre = page.locator('.run-ex').nth(0);              // Incline Walk (treadmill)
+  const tre = page.locator('.run-ex').nth(4);              // Incline Walk (treadmill) finisher
   check((await tre.locator('[data-f=incline]').count()) >= 1
     && (await tre.locator('[data-f=speed]').count()) >= 1
-    && (await tre.locator('[data-f=minutes]').count()) >= 1, 'treadmill shows incline/speed/min inputs');
+    && (await tre.locator('[data-f=minutes]').count()) >= 1, 'treadmill finisher shows incline/speed/min inputs');
   const trow = tre.locator('.set-row').first();
   await trow.locator('[data-f=incline]').fill('12');
   await trow.locator('[data-f=speed]').fill('3');
