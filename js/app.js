@@ -17,6 +17,27 @@ let tickers = [];
 function addTicker(id) { tickers.push(id); }
 function clearTickers() { tickers.forEach(clearInterval); tickers = []; }
 
+/* cleanup callbacks (event listeners, wake lock) run when leaving a screen */
+let leaveFns = [];
+function onLeaveScreen(fn) { leaveFns.push(fn); }
+function runLeave() { leaveFns.forEach((fn) => { try { fn(); } catch (_) {} }); leaveFns = []; }
+
+/* keep the screen awake during a workout (auto-released by the OS on background) */
+let wakeLock = null;
+async function acquireWakeLock() {
+  try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+}
+function releaseWakeLock() { try { if (wakeLock) wakeLock.release(); } catch (_) {} wakeLock = null; }
+
+/* best-effort rest-done alert when the app is backgrounded/locked */
+function notifyRestDone() {
+  try { if ('Notification' in window && Notification.permission === 'granted')
+    new Notification('Rest done 💪', { body: 'Time for your next set', tag: 'rest', renotify: true }); } catch (_) {}
+}
+function askNotifyPermission() {
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (_) {}
+}
+
 /* ---------- tiny helpers ---------- */
 function go(hash) { location.hash = hash; }
 function mount(html) { app.innerHTML = html; app.firstElementChild?.classList.add('fade-in'); }
@@ -333,6 +354,7 @@ function screenEditor(id) {
 function startRun(planId) {
   const plan = DB.getPlan(planId);
   if (!plan) return;
+  askNotifyPermission(); // user tapped Start — a valid gesture to ask
   const existing = DB.getActive();
   if (existing && existing.planId === planId) return go('#/plan/' + planId + '/run');
   if (existing && existing.planId !== planId &&
@@ -386,8 +408,10 @@ function screenRun(planId) {
   // sets already logged in this session.
   const order = Object.keys(active.entries);
 
-  // rest-timer state lives outside the DOM so re-renders don't kill it
-  const rest = { id: null, remaining: 0, total: 0, exId: null };
+  // rest-timer state lives outside the DOM so re-renders don't kill it.
+  // endAt is an absolute timestamp so the countdown survives backgrounding,
+  // lock-screen throttling, and even a full reload (persisted in active).
+  const rest = { id: null, total: 0, exId: null, endAt: 0 };
   let elapsedId = null; // single elapsed ticker, replaced (not stacked) each render
   let activeSel = firstPending(); // the set the one pinned Log button will save
 
@@ -484,52 +508,67 @@ function screenRun(planId) {
   }
 
   /* ---- elapsed (total workout) timer ---- */
+  // Computed from startedAt every tick, so backgrounding/lock can't make it
+  // drift — when the app returns it shows the true elapsed time.
   function startElapsed() {
     if (elapsedId) clearInterval(elapsedId);
-    const elEl = qs('#elapsed');
-    const tick = () => {
-      const secs = (Date.now() - active.startedAt) / 1000;
-      if (elEl) elEl.textContent = fmtClock(secs);
-    };
-    tick();
-    elapsedId = setInterval(tick, 1000);
+    elapsedId = setInterval(drawElapsed, 1000);
     addTicker(elapsedId);
+    drawElapsed();
+  }
+  function drawElapsed() {
+    const elEl = qs('#elapsed');
+    if (elEl) elEl.textContent = fmtClock((Date.now() - active.startedAt) / 1000);
   }
 
-  /* ---- rest countdown + vibration ---- */
+  /* ---- rest countdown (timestamp-based, survives background) ---- */
+  function restRemaining() {
+    return rest.endAt ? Math.max(0, Math.round((rest.endAt - Date.now()) / 1000)) : 0;
+  }
   function startRest(seconds, exId) {
     stopRest();
-    rest.total = seconds; rest.remaining = seconds; rest.exId = exId;
-    rest.id = setInterval(() => {
-      rest.remaining -= 1;
-      if (rest.remaining <= 0) { finishRest(); return; }
-      drawRest();
-    }, 1000);
+    rest.total = seconds; rest.exId = exId; rest.endAt = Date.now() + seconds * 1000;
+    active.restState = { endAt: rest.endAt, total: rest.total, exId }; persist();
+    rest.id = setInterval(tickRest, 1000);
     addTicker(rest.id);
+    drawRest();
+  }
+  function resumeRest() { // restore an in-flight rest after reload/return
+    const rs = active.restState;
+    if (!rs || !(rs.endAt > Date.now())) { if (rs) { delete active.restState; persist(); } return; }
+    rest.total = rs.total; rest.exId = rs.exId; rest.endAt = rs.endAt;
+    rest.id = setInterval(tickRest, 1000);
+    addTicker(rest.id);
+  }
+  function tickRest() {
+    if (restRemaining() <= 0) { finishRest(); return; }
     drawRest();
   }
   function finishRest() {
     stopRest();
     // buzz pattern — Android fires this; iOS ignores silently
     if (navigator.vibrate) navigator.vibrate([400, 120, 400]);
+    notifyRestDone(); // alert even if the app is backgrounded (if permission granted)
     toast('Rest done — next set 💪');
     drawRest(); // clears the bar
   }
   function stopRest() {
     if (rest.id) { clearInterval(rest.id); rest.id = null; }
-    rest.remaining = 0; rest.exId = null;
+    rest.endAt = 0; rest.exId = null;
+    if (active.restState) { delete active.restState; persist(); }
   }
   function drawRest() {
     const host = qs('#rest-host');
     if (!host) return;
     if (!rest.id) { host.innerHTML = ''; return; }
-    const pct = rest.total ? (rest.remaining / rest.total) * 100 : 0;
+    const remaining = restRemaining();
+    const pct = rest.total ? (remaining / rest.total) * 100 : 0;
     host.innerHTML = `
       <div class="card" style="margin:0 0 10px;border-color:var(--accent);display:flex;align-items:center;gap:14px;padding:12px 14px">
         <div style="flex:1">
           <div style="display:flex;justify-content:space-between;align-items:baseline">
             <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Rest</span>
-            <span style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:700">${fmtClock(rest.remaining)}</span>
+            <span style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:700">${fmtClock(remaining)}</span>
           </div>
           <div style="height:6px;background:var(--surface-2);border-radius:3px;margin-top:8px;overflow:hidden">
             <div style="height:100%;width:${pct}%;background:var(--accent);transition:width 1s linear"></div>
@@ -540,7 +579,11 @@ function screenRun(planId) {
       </div>`;
     const add = qs('#rest-add');
     const skip = qs('#rest-skip');
-    if (add) add.addEventListener('click', () => { rest.remaining += 15; rest.total += 15; drawRest(); });
+    if (add) add.addEventListener('click', () => {
+      rest.endAt += 15000; rest.total += 15;
+      if (active.restState) { active.restState.endAt = rest.endAt; active.restState.total = rest.total; persist(); }
+      drawRest();
+    });
     if (skip) skip.addEventListener('click', () => { stopRest(); drawRest(); });
   }
 
@@ -646,6 +689,20 @@ function screenRun(planId) {
     go('#/plan/' + planId + '/history');
   }
 
+  // Keep the screen awake while working out, and recompute the timers the
+  // instant the app returns from background/lock (they're timestamp-based, so
+  // they self-correct — and a rest that finished while away fires on return).
+  acquireWakeLock();
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible') return;
+    acquireWakeLock();
+    drawElapsed();
+    if (rest.id) { if (restRemaining() <= 0) finishRest(); else drawRest(); }
+  };
+  document.addEventListener('visibilitychange', onVisible);
+  onLeaveScreen(() => { document.removeEventListener('visibilitychange', onVisible); releaseWakeLock(); });
+
+  resumeRest(); // restore an in-flight rest countdown after a reload/return
   render();
 }
 
@@ -960,6 +1017,7 @@ function screenInsights() {
    ============================================================ */
 function router() {
   clearTickers();
+  runLeave();
   const hash = location.hash || '#/';
   const parts = hash.replace(/^#\//, '').split('/'); // ["plan","<id>","run"]
 

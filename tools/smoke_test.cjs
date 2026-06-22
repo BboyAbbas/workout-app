@@ -248,6 +248,28 @@ function check(cond, msg) {
   check(page.url() === planUrl && /#\/plan\//.test(page.url()),
     'back returns to the plan, not the general insights page');
 
+  console.log('\n[7g] Rest countdown is timestamp-based and survives a reload');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-tpl="0"]');
+  await page.locator('[data-tpl="0"]').click();
+  await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  const rr = page.locator('.run-ex').nth(0).locator('.set-row').first();
+  await rr.locator('[data-f="weight"]').fill('40');
+  await rr.locator('[data-f="reps"]').fill('8');
+  await rr.locator('[data-f="reps"]').click();
+  await page.locator('#logbtn').click();
+  await page.waitForSelector('#rest-host .card');                 // 90s rest running
+  const rstate = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_active_v1') || '{}').restState);
+  check(rstate && rstate.endAt > Date.now(), 'rest end-time persisted to storage (survives suspend)');
+  await page.reload();                                            // simulate being killed/restored
+  const restored = await page.waitForSelector('#rest-host .card', { timeout: 4000 }).then(() => true).catch(() => false);
+  check(restored, 'rest countdown restored after a full reload');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
