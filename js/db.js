@@ -321,7 +321,7 @@ export const TEMPLATES = [
   {
     name: 'Push',
     exercises: [
-      { name: 'Incline Barbell Bench', sets: 4, repMin: 6, repMax: 8, reps: 8, weight: 0, rest: 180 },
+      { name: 'Bench Press', sets: 4, repMin: 6, repMax: 8, reps: 8, weight: 0, rest: 180 },
       { name: 'Machine Chest Fly', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 60 },
       { name: 'Seated DB Shoulder Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 },
       { name: 'Rope Triceps Pushdown', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0, rest: 45 },

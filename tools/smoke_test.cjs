@@ -130,7 +130,7 @@ function check(cond, msg) {
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row');
   const s1 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
-  check(s1.length === 1 && s1[0].entries.length === 1 && s1[0].entries[0].name === 'Incline Barbell Bench',
+  check(s1.length === 1 && s1[0].entries.length === 1 && s1[0].entries[0].name === 'Bench Press',
     `session 1 saved only the logged exercise (entries=${s1[0] ? s1[0].entries.map(e => e.name).join(',') : 'none'})`);
 
   // session 2: start again; Squat is now PREFILLED with a recommendation but
@@ -166,7 +166,7 @@ function check(cond, msg) {
     await page.locator('#logbtn').click();
     await page.waitForTimeout(120);
   };
-  await logEx(0); // Incline Barbell Bench
+  await logEx(0); // Bench Press
   await logEx(2); // Seated DB Shoulder Press
   // remove the 3rd exercise from the plan while the workout is active
   await page.evaluate(() => {
@@ -184,7 +184,7 @@ function check(cond, msg) {
   await page.waitForTimeout(200);
   const sd = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
   const savedNames = sd[0] ? sd[0].entries.map((e) => e.name) : [];
-  check(savedNames.includes('Incline Barbell Bench') && savedNames.includes('Seated DB Shoulder Press'),
+  check(savedNames.includes('Bench Press') && savedNames.includes('Seated DB Shoulder Press'),
     `both logged exercises saved despite plan edit (${savedNames.join(',')})`);
 
   console.log('\n[7e] Insights extras (calendar/records), exercise chart, PR toast');
