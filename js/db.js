@@ -107,6 +107,27 @@ export function cardioRequiredKey(kind) { return 'minutes'; }
 
 export const DEFAULT_REST = 90; // seconds, used when an exercise has none set
 export const DEFAULT_INC = 2.5; // kg added when an exercise graduates the rep range
+export const DB_INC = 2;        // dumbbells come in fixed steps — an 18.5kg DB doesn't exist
+
+/**
+ * Smallest realistic weight jump for an exercise, so a graduation lands on a
+ * weight you can actually load. Dumbbell movements step by whole dumbbells
+ * (2 kg here); everything else uses 2.5 kg. An explicit `inc` on the exercise
+ * always wins — set it per exercise in the plan editor to match your gym.
+ */
+export function incFor(e) {
+  const n = Number(e && e.inc);
+  if (Number.isFinite(n) && n > 0) return n;
+  const name = ' ' + String((e && e.name) || '').toLowerCase() + ' ';
+  if (/ db |dumbbell|goblet/.test(name)) return DB_INC;
+  return DEFAULT_INC;
+}
+
+/** Snap a weight to the nearest multiple of `step` so it's a real, loadable weight. */
+export function roundToStep(w, step) {
+  const s = step > 0 ? step : DEFAULT_INC;
+  return Math.round((Math.round(w / s) * s) * 100) / 100;
+}
 
 /**
  * The working rep range for an exercise. New exercises store repMin/repMax.
@@ -153,7 +174,7 @@ export function recommendNext(lastSets, range, inc = DEFAULT_INC, targetSets = 1
   // the top weight — so a single logged set (or a partial session) won't bump.
   const hitTop = topWorking.length >= need && topWorking.every((s) => N(s.reps) >= max);
   if (hitTop && w > 0) {
-    const nw = Math.round((w + inc) * 100) / 100;
+    const nw = roundToStep(w + inc, inc); // land on a real, loadable weight
     return { dir: 'up', weight: nw,
       note: `Add weight: ${w} → ${nw}kg. Reset to ${min} reps and build back up.` };
   }

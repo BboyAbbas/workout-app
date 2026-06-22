@@ -361,6 +361,7 @@ function screenEditor(id) {
           ex.repMax = hi;
           ex.reps = hi;                    // keep legacy field = top of range
           ex.weight = num(row.querySelector('[data-f=weight]')?.value, 0);
+          ex.inc = num(row.querySelector('[data-f=inc]')?.value, 0) || DB.incFor(ex); // weight step
         }
       });
     }
@@ -432,9 +433,15 @@ function screenEditor(id) {
         </div>
         ${settings}
         <div class="spacer"></div>
-        <div class="field" style="margin:0">
-          <label>Rest between sets (seconds)</label>
-          <input class="input" data-f="rest" inputmode="numeric" value="${esc(e.rest ?? DB.DEFAULT_REST)}" />
+        <div class="num-grid" style="grid-template-columns:${cardio ? '1fr' : '1fr 1fr'};margin:0">
+          <div class="field" style="margin:0">
+            <label>Rest (seconds)</label>
+            <input class="input" data-f="rest" inputmode="numeric" value="${esc(e.rest ?? DB.DEFAULT_REST)}" />
+          </div>
+          ${cardio ? '' : `<div class="field" style="margin:0">
+            <label>Weight step (kg)</label>
+            <input class="input" data-f="inc" inputmode="decimal" value="${esc(DB.incFor(e))}" />
+          </div>`}
         </div>
       </div>`;
   }
@@ -483,7 +490,7 @@ function startRun(planId) {
     }
 
     const range = DB.repRange(e);
-    const rec = DB.recommendNext(last.length ? last : null, range, DB.DEFAULT_INC, e.sets);
+    const rec = DB.recommendNext(last.length ? last : null, range, DB.incFor(e), e.sets);
     const graduating = rec.dir === 'up'; // hit the top of the range last time -> add weight
     // Prefill each set with the plan for THIS session:
     //  - holding weight         -> last time's numbers (then push reps toward the top)
@@ -1268,10 +1275,6 @@ function screenSettings() {
         <div class="kv"><span>Status</span><b id="notif-status">${esc(notifStatusText())}</b></div>
       </div>
       <button class="btn btn-block" id="notif-enable">${icons.check} Enable rest alerts</button>
-      <div class="spacer"></div>
-      <button class="btn btn-block" id="notif-test">Test alert now</button>
-      <div class="spacer"></div>
-      <button class="btn btn-block" id="notif-test-lock">Test lock-screen alert — lock phone after tapping</button>
 
       <div class="section-label">Cloud sync</div>
       <div class="card">
@@ -1306,18 +1309,6 @@ function screenSettings() {
       else toast('Not enabled yet — tap again');
     } catch (_) { toast('Could not enable'); }
   });
-  qs('#notif-test').addEventListener('click', () => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Enable rest alerts first'); return; }
-    unlockAudio(); playBeep(); notifyRestDone();
-    toast('Sent a test alert');
-  });
-  qs('#notif-test-lock').addEventListener('click', async () => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Enable rest alerts first'); return; }
-    await ensurePushSubscribed();
-    scheduleServerRestAlert(Date.now() + 6000);
-    toast('Lock your phone now — alert in ~6s');
-  });
-
   qs('#syncnow').addEventListener('click', async () => {
     toast('Syncing…');
     await push(); await pull();

@@ -1,6 +1,6 @@
 /* Unit tests for the double-progression engine in js/db.js.
    Pure functions, no DOM/localStorage — run with `node tools/rec_test.mjs`. */
-import { recommendNext, repRange, DEFAULT_INC } from '../js/db.js';
+import { recommendNext, repRange, DEFAULT_INC, incFor, roundToStep } from '../js/db.js';
 
 let pass = 0, fail = 0;
 function ok(name, cond) {
@@ -115,6 +115,31 @@ console.log('recommendNext — bodyweight not yet maxed:');
   const r = recommendNext([{ reps: 7, weight: 0 }], { min: 5, max: 10 }, 2.5, 3);
   eq('dir', r.dir, 'hold');
   ok('note says aim', /aim/i.test(r.note));
+}
+
+console.log('incFor — dumbbell moves step by a real dumbbell, others 2.5:');
+{
+  eq('One-Arm DB Row -> 2', incFor({ name: 'One-Arm DB Row' }), 2);
+  eq('DB Lateral Raises -> 2', incFor({ name: 'DB Lateral Raises' }), 2);
+  eq('Goblet Squat -> 2', incFor({ name: 'Goblet Squat' }), 2);
+  eq('Bench Press -> 2.5', incFor({ name: 'Bench Press' }), 2.5);
+  eq('Lat Pulldown -> 2.5', incFor({ name: 'Lat Pulldown' }), 2.5);
+  eq('explicit inc wins', incFor({ name: 'One-Arm DB Row', inc: 5 }), 5);
+}
+
+console.log('roundToStep — snaps to a loadable weight:');
+{
+  eq('18 on a 2kg step', roundToStep(18, 2), 18);
+  eq('18.5 snaps to 18 on 2kg', roundToStep(18.5, 2), 18);
+  eq('92.5 on a 2.5 step', roundToStep(92.5, 2.5), 92.5);
+}
+
+console.log('recommendNext — dumbbell graduates to a REAL weight (16 -> 18, not 18.5):');
+{
+  const last = [{ reps: 12, weight: 16 }, { reps: 12, weight: 16 }, { reps: 12, weight: 16 }];
+  const r = recommendNext(last, { min: 8, max: 12 }, incFor({ name: 'One-Arm DB Row' }), 3);
+  eq('dir', r.dir, 'up');
+  eq('weight = real 18kg DB (not 18.5)', r.weight, 18);
 }
 
 console.log('DEFAULT_INC is 2.5:');
