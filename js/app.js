@@ -6,6 +6,7 @@
 
 import * as DB from './db.js';
 import { initSync, pull, push } from './sync.js';
+import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert } from './push.js';
 import {
   esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
   icons, toast, summariseSets, summariseCardio,
@@ -30,10 +31,75 @@ async function acquireWakeLock() {
 }
 function releaseWakeLock() { try { if (wakeLock) wakeLock.release(); } catch (_) {} wakeLock = null; }
 
-/* best-effort rest-done alert when the app is backgrounded/locked */
-function notifyRestDone() {
-  try { if ('Notification' in window && Notification.permission === 'granted')
-    new Notification('Rest done 💪', { body: 'Time for your next set', tag: 'rest', renotify: true }); } catch (_) {}
+/* ---------- offline rest-done alert (sound + notification) ----------
+   A web app cannot vibrate from a backgrounded/locked screen (navigator.vibrate
+   is blocked when hidden, and the API that scheduled local alarms was dropped by
+   Chrome). So when the screen is off we: (a) keep a faint but audible hum playing
+   so the OS doesn't freeze our 1-second timer, and (b) play a real alarm sound the
+   instant rest ends. A service-worker notification rides on top for the buzz/banner
+   (its vibration is governed by the phone's notification settings). Server push
+   (push.js) is the online path that needs none of this. */
+let audioCtx = null, humOsc = null, humGain = null;
+function unlockAudio() { // must run from a user gesture (Start / Log tap)
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch (_) {}
+}
+function startHum() { // faint, ~ -50 dB — a SILENT track does not keep timers alive
+  if (!audioCtx) unlockAudio();
+  if (!audioCtx || humOsc) return;
+  try {
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.frequency.value = 60; g.gain.value = 0.003;
+    osc.connect(g).connect(audioCtx.destination); osc.start();
+    humOsc = osc; humGain = g;
+  } catch (_) {}
+}
+function stopHum() {
+  try { if (humOsc) humOsc.stop(); } catch (_) {}
+  try { if (humGain) humGain.disconnect(); } catch (_) {}
+  humOsc = humGain = null;
+}
+function playBeep() { // three loud rising chirps on the audio clock
+  if (!audioCtx) unlockAudio();
+  if (!audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const start = t0 + i * 0.5, end = start + 0.38;
+      osc.frequency.setValueAtTime(880, start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.8, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, end);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(start); osc.stop(end + 0.05);
+    }
+  } catch (_) {}
+}
+function mediaSession(on) { // gives the rest timer lock-screen presence while audio plays
+  try {
+    if (!('mediaSession' in navigator)) return;
+    if (on) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Rest timer', artist: 'Workout' });
+      navigator.mediaSession.playbackState = 'playing';
+    } else {
+      navigator.mediaSession.playbackState = 'none';
+    }
+  } catch (_) {}
+}
+function notifyRestDone() { // fire through the SW so it shows backgrounded/locked
+  const opts = { body: 'Time for your next set', tag: 'rest', renotify: true, silent: false, vibrate: [400, 120, 400] };
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.showNotification('Rest done 💪', opts))
+        .catch(() => { try { new Notification('Rest done 💪', opts); } catch (_) {} });
+    } else { new Notification('Rest done 💪', opts); }
+  } catch (_) {}
 }
 function askNotifyPermission() {
   try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (_) {}
@@ -183,6 +249,11 @@ function screenPlan(id) {
   const p = DB.getPlan(id);
   if (!p) return go('#/');
   const sessions = DB.getSessionsForPlan(id);
+  // If THIS plan has an unfinished workout, the button resumes it instead of
+  // starting fresh (tapping Start already resumes via startRun — the label was
+  // the only thing lying about it).
+  const act = DB.getActive();
+  const resuming = !!(act && act.planId === id);
 
   mount(`
     ${topbar(p.name || 'Untitled', {
@@ -219,7 +290,7 @@ function screenPlan(id) {
           }).join('')}
 
       <div class="spacer"></div>
-      <button class="btn btn-primary btn-block" data-run>${icons.play} Start workout</button>
+      <button class="btn btn-primary btn-block" data-run>${icons.play} ${resuming ? 'Resume workout' : 'Start workout'}</button>
       <div class="spacer"></div>
       <div class="btn-row">
         <button class="btn" data-nav="#/plan/${id}/history">${icons.history} History (${sessions.length})</button>
@@ -378,6 +449,8 @@ function startRun(planId) {
   const plan = DB.getPlan(planId);
   if (!plan) return;
   askNotifyPermission(); // user tapped Start — a valid gesture to ask
+  unlockAudio();         // same gesture unlocks the offline audio alert for later
+  ensurePushSubscribed(); // register this device for the online (server) alert
   const existing = DB.getActive();
   if (existing && existing.planId === planId) return go('#/plan/' + planId + '/run');
   if (existing && existing.planId !== planId &&
@@ -498,7 +571,7 @@ function screenRun(planId) {
         const crows = en.sets.map((s, si) => {
           const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
           const inputs = fields.map((f) =>
-            `<div class="cell"><input class="input" data-f="${f.key}" inputmode="decimal" placeholder="${esc(f.ph)}" value="${esc(s[f.key] ?? '')}" /></div>`).join('');
+            `<div class="cell"><input class="input" data-f="${f.key}" inputmode="decimal" enterkeyhint="go" placeholder="${esc(f.ph)}" value="${esc(s[f.key] ?? '')}" /></div>`).join('');
           return `
           <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}" style="${cols}">
             <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
@@ -529,13 +602,19 @@ function screenRun(planId) {
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
           <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
-          <div class="cell">${wHint}<input class="input${wCls}" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" /></div>
-          <div class="cell">${rHint}<input class="input${rCls}" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" /></div>
+          <div class="cell">${wHint}<input class="input${wCls}" data-f="weight" inputmode="decimal" enterkeyhint="go" placeholder="kg" value="${esc(s.weight)}" /></div>
+          <div class="cell">${rHint}<input class="input${rCls}" data-f="reps" inputmode="numeric" enterkeyhint="go" placeholder="reps" value="${esc(s.reps)}" /></div>
         </div>`;
       }).join('');
       return `
         <div class="card run-ex">
           <p class="name">${esc(en.name)}</p>
+          <div class="rest-ctl">
+            <span class="rest-ctl-label">Rest</span>
+            <button class="rest-step" data-rest-dec="${exId}" aria-label="Less rest">−</button>
+            <span class="rest-ctl-val" data-rest-val="${exId}">${fmtClock(en.rest != null ? en.rest : DB.DEFAULT_REST)}</span>
+            <button class="rest-step" data-rest-inc="${exId}" aria-label="More rest">+</button>
+          </div>
           <div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>
           ${rows}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
@@ -554,11 +633,12 @@ function screenRun(planId) {
           <div class="label">Elapsed</div>
           <div class="time" id="elapsed">00:00</div>
         </div>
-        <button class="btn btn-primary" id="finish">${icons.check} Finish</button>
       </div>
       <main class="screen" style="padding-bottom:200px">
         ${legend}
         ${exHtml}
+        <div class="spacer"></div>
+        <button class="btn btn-primary btn-block" id="finish">${icons.check} Finish workout</button>
         <div class="spacer"></div>
         <button class="btn btn-danger btn-block" id="discard">Discard workout</button>
       </main>
@@ -595,6 +675,7 @@ function screenRun(planId) {
     stopRest();
     rest.total = seconds; rest.exId = exId; rest.endAt = Date.now() + seconds * 1000;
     active.restState = { endAt: rest.endAt, total: rest.total, exId }; persist();
+    scheduleServerRestAlert(rest.endAt); // online path: server fires a push at rest end
     rest.id = setInterval(tickRest, 1000);
     addTicker(rest.id);
     drawRest();
@@ -603,6 +684,7 @@ function screenRun(planId) {
     const rs = active.restState;
     if (!rs || !(rs.endAt > Date.now())) { if (rs) { delete active.restState; persist(); } return; }
     rest.total = rs.total; rest.exId = rs.exId; rest.endAt = rs.endAt;
+    scheduleServerRestAlert(rest.endAt); // re-arm the online push after a reload/return
     rest.id = setInterval(tickRest, 1000);
     addTicker(rest.id);
   }
@@ -611,16 +693,19 @@ function screenRun(planId) {
     drawRest();
   }
   function finishRest() {
-    stopRest();
-    // buzz pattern — Android fires this; iOS ignores silently
+    playBeep();        // audible alarm first, while the audio context is still alive
+    // buzz pattern — fires when the app is in front; blocked when hidden (the notification buzzes there)
     if (navigator.vibrate) navigator.vibrate([400, 120, 400]);
-    notifyRestDone(); // alert even if the app is backgrounded (if permission granted)
+    notifyRestDone();  // notification buzz/banner for the backgrounded/locked case
+    stopRest();        // clears the countdown + tears down the keep-alive hum
     toast('Rest done — next set 💪');
     drawRest(); // clears the bar
   }
   function stopRest() {
     if (rest.id) { clearInterval(rest.id); rest.id = null; }
     rest.endAt = 0; rest.exId = null;
+    stopHum(); mediaSession(false); // silence the keep-alive hum, release audio focus
+    cancelServerRestAlert();        // drop the pending online push (skipped/finished)
     if (active.restState) { delete active.restState; persist(); }
   }
   function drawRest() {
@@ -630,27 +715,59 @@ function screenRun(planId) {
     const remaining = restRemaining();
     const pct = rest.total ? (remaining / rest.total) * 100 : 0;
     host.innerHTML = `
-      <div class="card" style="margin:0 0 10px;border-color:var(--accent);display:flex;align-items:center;gap:14px;padding:12px 14px">
-        <div style="flex:1">
+      <div class="card" style="margin:0 0 10px;border-color:var(--accent);display:flex;align-items:center;gap:10px;padding:12px 14px">
+        <div style="flex:1;min-width:0">
           <div style="display:flex;justify-content:space-between;align-items:baseline">
             <span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Rest</span>
             <span style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:700">${fmtClock(remaining)}</span>
           </div>
           <div style="height:6px;background:var(--surface-2);border-radius:3px;margin-top:8px;overflow:hidden">
-            <div style="height:100%;width:${pct}%;background:var(--accent);transition:width 1s linear"></div>
+            <div style="height:100%;width:${Math.min(100, pct)}%;background:var(--accent);transition:width 1s linear"></div>
           </div>
         </div>
+        <button class="btn btn-sm" id="rest-sub">−15s</button>
         <button class="btn btn-sm" id="rest-add">+15s</button>
         <button class="btn btn-sm btn-primary" id="rest-skip">Skip</button>
       </div>`;
+    const sub = qs('#rest-sub');
     const add = qs('#rest-add');
     const skip = qs('#rest-skip');
+    if (sub) sub.addEventListener('click', () => {
+      rest.endAt = Math.max(Date.now() + 1000, rest.endAt - 15000); // never drop below ~1s left
+      rest.total = Math.max(1, rest.total - 15);
+      if (active.restState) { active.restState.endAt = rest.endAt; active.restState.total = rest.total; persist(); }
+      scheduleServerRestAlert(rest.endAt); // move the online push to the new end time
+      drawRest();
+    });
     if (add) add.addEventListener('click', () => {
       rest.endAt += 15000; rest.total += 15;
       if (active.restState) { active.restState.endAt = rest.endAt; active.restState.total = rest.total; persist(); }
+      scheduleServerRestAlert(rest.endAt); // move the online push to the new end time
       drawRest();
     });
     if (skip) skip.addEventListener('click', () => { stopRest(); drawRest(); });
+  }
+
+  /* ---- per-exercise rest length (shown on each card, saved as the default) ---- */
+  // Changing rest here applies to this workout's remaining sets immediately AND
+  // is written back to the plan, so it's the new default every future workout.
+  function changeRest(exId, delta) {
+    const en = active.entries[exId];
+    if (!en) return;
+    const cur = en.rest != null ? en.rest : DB.DEFAULT_REST;
+    const next = Math.max(0, cur + delta);
+    if (next === cur) return;
+    en.rest = next;
+    persist();
+    saveRestToPlan(exId, next);
+    const valEl = qs(`[data-rest-val="${exId}"]`);
+    if (valEl) valEl.textContent = fmtClock(next);
+  }
+  function saveRestToPlan(exId, secs) {
+    const plan = DB.getPlan(planId);
+    if (!plan) return;
+    const ex = plan.exercises.find((e) => e.id === exId);
+    if (ex && ex.rest !== secs) { ex.rest = secs; DB.savePlan(plan); }
   }
 
   /* ---- event wiring ---- */
@@ -668,6 +785,16 @@ function screenRun(planId) {
         const row = inp.closest('.set-row');
         selectActive(row.dataset.ex, +row.dataset.si);
       });
+      // the keyboard's "Go"/Enter key logs that set — same as tapping the Log
+      // button. Saves a reach to the bottom of the screen mid-set.
+      inp.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const row = inp.closest('.set-row');
+        selectActive(row.dataset.ex, +row.dataset.si);
+        inp.blur(); // drop the keyboard, mirroring a Log tap
+        onLog();
+      });
     });
 
     // tap a set's number to select it as the active set
@@ -684,6 +811,12 @@ function screenRun(planId) {
         render();
       }));
 
+    // per-exercise rest steppers (±15s) — see changeRest
+    qsa('[data-rest-inc]').forEach((b) =>
+      b.addEventListener('click', () => changeRest(b.dataset.restInc, 15)));
+    qsa('[data-rest-dec]').forEach((b) =>
+      b.addEventListener('click', () => changeRest(b.dataset.restDec, -15)));
+
     // THE one pinned button: log the selected set, then jump to the next
     qs('#logbtn').addEventListener('click', onLog);
 
@@ -696,6 +829,7 @@ function screenRun(planId) {
   }
 
   function onLog() {
+    unlockAudio(); // a tap keeps the offline audio alert armed (covers resumed workouts)
     if (!activeSel) return finishWorkout(); // all sets done -> button is "Finish workout"
     const { exId, si } = activeSel;
     const en = active.entries[exId];
@@ -764,14 +898,23 @@ function screenRun(planId) {
   // instant the app returns from background/lock (they're timestamp-based, so
   // they self-correct — and a rest that finished while away fires on return).
   acquireWakeLock();
-  const onVisible = () => {
-    if (document.visibilityState !== 'visible') return;
-    acquireWakeLock();
-    drawElapsed();
-    if (rest.id) { if (restRemaining() <= 0) finishRest(); else drawRest(); }
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      acquireWakeLock();
+      stopHum(); mediaSession(false); // back on screen: live timer drives the alert
+      drawElapsed();
+      if (rest.id) { if (restRemaining() <= 0) finishRest(); else drawRest(); }
+    } else if (rest.id && restRemaining() > 0) {
+      // backgrounded/locked mid-rest: a faint hum stops the OS freezing our timer,
+      // so the alarm sound + notification still fire on time.
+      unlockAudio(); startHum(); mediaSession(true);
+    }
   };
-  document.addEventListener('visibilitychange', onVisible);
-  onLeaveScreen(() => { document.removeEventListener('visibilitychange', onVisible); releaseWakeLock(); });
+  document.addEventListener('visibilitychange', onVisibility);
+  onLeaveScreen(() => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    releaseWakeLock(); stopHum(); mediaSession(false);
+  });
 
   resumeRest(); // restore an in-flight rest countdown after a reload/return
   render();

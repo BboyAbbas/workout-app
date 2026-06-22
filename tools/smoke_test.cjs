@@ -320,6 +320,53 @@ function check(cond, msg) {
   }));
   check(!wiped.p && !wiped.s, 'reset cleared plans + sessions');
 
+  console.log('\n[7j] New: Resume label, Finish moved, per-exercise rest saves, Enter logs, rest -15s');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push
+  await page.waitForSelector('[data-run]');
+  const startTxt = ((await page.locator('[data-run]').first().textContent()) || '').trim();
+  check(/start/i.test(startTxt), `plan shows "Start workout" before starting (${startTxt})`);
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+
+  // Finish moved out of the top bar to a full-width button at the bottom
+  check((await page.locator('.timer-bar #finish').count()) === 0, 'Finish is NOT in the top timer bar');
+  check((await page.locator('main #finish.btn-block').count()) === 1, 'Finish is a full-width button at the bottom');
+
+  // per-exercise rest stepper shown + saved back to the plan as the new default
+  const card0 = page.locator('.run-ex').nth(0);              // Bench Press (rest 180)
+  check((await card0.locator('.rest-ctl [data-rest-inc]').count()) === 1, 'each exercise shows its rest with a +/- stepper');
+  const restBefore = ((await card0.locator('.rest-ctl-val').first().textContent()) || '').trim();
+  await card0.locator('[data-rest-inc]').click();
+  const restAfter = ((await card0.locator('.rest-ctl-val').first().textContent()) || '').trim();
+  check(restBefore !== restAfter, `tapping + changes the shown rest (${restBefore} -> ${restAfter})`);
+  const savedRest = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_plans_v1'))[0].exercises[0].rest);
+  check(savedRest === 195, `new rest auto-saved to the plan as the default (got ${savedRest}, expected 195)`);
+
+  // Enter / the keyboard "Go" key logs the focused set
+  const r0 = card0.locator('.set-row').first();
+  await r0.locator('[data-f="weight"]').fill('60');
+  await r0.locator('[data-f="reps"]').fill('8');
+  await r0.locator('[data-f="reps"]').press('Enter');
+  check(await card0.locator('.set-row.done').first().isVisible(), 'pressing Enter/Go logged the set');
+
+  // -15s shortens the live rest countdown
+  await page.waitForSelector('#rest-host #rest-sub', { timeout: 2000 });
+  const end1 = await page.evaluate(() => (JSON.parse(localStorage.getItem('wt_active_v1') || '{}').restState || {}).endAt || 0);
+  await page.locator('#rest-sub').click();
+  const end2 = await page.evaluate(() => (JSON.parse(localStorage.getItem('wt_active_v1') || '{}').restState || {}).endAt || 0);
+  check(end2 > 0 && end2 < end1, `-15s shortens the rest (endAt ${end1} -> ${end2})`);
+
+  // Resume label: going back to the plan mid-workout offers Resume, not Start
+  const activePlan = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_active_v1')).planId);
+  await page.goto(BASE + '/#/plan/' + activePlan);
+  await page.waitForSelector('[data-run]');
+  const resumeTxt = ((await page.locator('[data-run]').first().textContent()) || '').trim();
+  check(/resume/i.test(resumeTxt), `plan shows "Resume workout" while a workout is active (${resumeTxt})`);
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

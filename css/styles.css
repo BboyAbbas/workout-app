@@ -251,6 +251,21 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .set-row.active { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 .set-row.active .set-n { color: var(--accent); }
 
+/* per-exercise rest length: shown on every card, edited with ± (saved as default) */
+.rest-ctl { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.rest-ctl-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.rest-ctl-val {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px;
+  color: var(--text); min-width: 46px; text-align: center;
+}
+.rest-step {
+  width: 34px; height: 34px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); font-size: 20px; font-weight: 700; line-height: 1;
+  display: grid; place-items: center;
+}
+.rest-step:active { transform: scale(0.94); }
+
 /* pinned bottom bar holding the single Log button (rest bar stacks above it) */
 .run-foot {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;

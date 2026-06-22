@@ -3,8 +3,25 @@ main = "src/worker.js"
 compatibility_date = "2024-11-01"
 
 # Stores one JSON document per user key: state:<id> -> { data, updatedAt }
+# and one push subscription per user: push:<id> -> <PushSubscription>
 [[kv_namespaces]]
 binding = "WORKOUT_KV"
 id = "e2ecc9528c8049c0a7900e34d5e55878"
 
-# SYNC_TOKEN is set as a secret (wrangler secret put SYNC_TOKEN), never committed.
+# Durable Object: one per user, holds the rest-timer alarm that fires the push.
+[[durable_objects.bindings]]
+name = "REST_ALARM"
+class_name = "RestAlarm"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RestAlarm"]
+
+# Public VAPID application server key (safe to commit) + contact subject.
+[vars]
+VAPID_PUBLIC = "BK8B5p_0dzZGU9Bpgd9YAaCZIF_MdAu02raGS7JlcD2xPFT7gsawqjA_bs6LkQ3vT4JeOpwN4yzaswctUDb-Es4"
+VAPID_SUBJECT = "mailto:bboy.abbass@gmail.com"
+
+# Secrets (wrangler secret put ..., never committed):
+#   SYNC_TOKEN          — the Bearer gate
+#   VAPID_PRIVATE_JWK   — the VAPID private key (EC P-256 JWK) for signing pushes

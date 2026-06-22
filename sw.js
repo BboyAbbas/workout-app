@@ -2,7 +2,7 @@
    Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
    (no more stale-cache surprises while iterating). Offline -> fall back to the
    cached copy. Bump CACHE on release to drop the old precache. */
-const CACHE = 'workout-v24';
+const CACHE = 'workout-v25';
 const SHELL = [
   './',
   'index.html',
@@ -11,6 +11,7 @@ const SHELL = [
   'js/db.js',
   'js/ui.js',
   'js/sync.js',
+  'js/push.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -53,4 +54,33 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(networkFirst(req));
+});
+
+/* ---- Web Push: the online rest-done alert (server fires it at rest end) ---- */
+// The push wakes this worker even when the PWA is closed/backgrounded/locked, and
+// the notification's sound + vibration are governed by the phone's settings.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) {}
+  const title = d.title || 'Rest done 💪';
+  const opts = {
+    body: d.body || 'Time for your next set',
+    tag: d.tag || 'rest',
+    renotify: true,
+    silent: false,
+    vibrate: [400, 120, 400],
+    data: { url: './' },
+  };
+  e.waitUntil(self.registration.showNotification(title, opts));
+});
+
+// Tapping the notification focuses an open tab, or opens the app.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+      for (const c of cs) { if ('focus' in c) return c.focus(); }
+      if (self.clients.openWindow) return self.clients.openWindow('./');
+    })
+  );
 });
