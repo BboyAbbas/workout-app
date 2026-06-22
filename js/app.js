@@ -531,22 +531,22 @@ function screenRun(planId) {
       const holdR = rec.dir === 'hold' && rec.targetReps != null;
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
-        // subtle ring on the column to beat, only on un-logged sets
+        // green ring + a "→ N" target chip on the exact cell to beat, per set,
+        // only while the set is un-logged. The chip sits inside the cell corner.
         const wCls = upW && !s.done ? ' rec-target' : '';
         const rCls = holdR && !s.done ? ' rec-target' : '';
+        const wHint = upW && !s.done ? `<span class="cell-hint">→ ${rec.newWeight}</span>` : '';
+        const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>` : '';
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
           <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
-          <div class="cell"><input class="input${wCls}" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" /></div>
-          <div class="cell"><input class="input${rCls}" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" /></div>
+          <div class="cell">${wHint}<input class="input${wCls}" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(s.weight)}" /></div>
+          <div class="cell">${rHint}<input class="input${rCls}" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(s.reps)}" /></div>
         </div>`;
       }).join('');
-      // one clear goal chip per exercise (no per-cell math)
-      const goal = upW ? `<span class="rec-goal">aim ${rec.newWeight} kg</span>`
-        : holdR ? `<span class="rec-goal">aim ${rec.targetReps} reps</span>` : '';
       return `
         <div class="card run-ex">
-          <p class="name">${esc(en.name)}${goal}</p>
+          <p class="name">${esc(en.name)}</p>
           <div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>
           ${rows}
           <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
@@ -556,7 +556,7 @@ function screenRun(planId) {
     const hasRec = Object.values(active.entries)
       .some((en) => en.rec && (en.rec.dir === 'up' || en.rec.dir === 'hold'));
     const legend = hasRec
-      ? `<p class="run-legend">Boxes show last time — beat the <b class="rec-goal">green</b> box to level up.</p>`
+      ? `<p class="run-legend">Boxes show last time. <b class="rec-chip">→</b> green target = beat it for progress.</p>`
       : '';
 
     mount(`

@@ -198,19 +198,20 @@ input, select { font-family: inherit; }
 }
 .run-ex .lasttime b { color: var(--accent); font-weight: 650; }
 
-/* run screen: prefilled cells + progressive-overload target highlight */
+/* run screen: prefilled cells + per-cell progressive-overload target */
 .set-row .cell { position: relative; }
 .set-row .cell .input { width: 100%; }
-/* subtle ring on the column to beat (not a heavy double-border) */
-.input.rec-target { border-color: var(--accent); background: rgba(52,211,153,0.07); }
-/* one goal chip per exercise, on the name line */
-.rec-goal {
-  font-size: 12px; font-weight: 700; color: var(--accent);
-  background: rgba(52,211,153,0.13); padding: 2px 9px; border-radius: 999px;
-  margin-left: 8px; vertical-align: middle; white-space: nowrap;
+/* green ring on the exact cell to beat */
+.input.rec-target { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: rgba(52,211,153,0.06); }
+/* "→ N" target value, seated INSIDE the cell's top-right corner (no overflow,
+   no clipping at the card edge, clear of the centred input value) */
+.cell-hint {
+  position: absolute; top: 4px; right: 7px; z-index: 2;
+  font-size: 11px; font-weight: 800; color: var(--accent);
+  pointer-events: none; white-space: nowrap; line-height: 1;
 }
-.run-legend { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
-.run-legend .rec-goal { margin-left: 0; }
+.run-legend { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.run-legend .rec-chip { color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 6px; font-weight: 800; }
 /* cardio: neutral type chip + native select styled like an input */
 .kind-chip { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-2); padding: 2px 9px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
 select.input { appearance: none; -webkit-appearance: none; background-image: none; }

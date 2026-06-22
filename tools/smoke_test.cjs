@@ -99,7 +99,7 @@ function check(cond, msg) {
   const wVal = await page.locator('.run-ex').first().locator('[data-f="weight"]').first().inputValue();
   check(rVal === '10' && wVal === '20', `last time is prefilled into the boxes (weight ${wVal}, reps ${rVal})`);
   check((await page.locator('.input.rec-target').count()) >= 1, 'progressive-overload target highlighted on a cell');
-  check((await page.locator('.rec-goal').count()) >= 1, 'goal chip shown on the exercise');
+  check((await page.locator('.cell-hint').count()) >= 1, 'per-cell "→ N" target shown on the cell to beat');
 
   console.log('\n[7b] Insights page');
   await page.goto(BASE + '/#/insights');
