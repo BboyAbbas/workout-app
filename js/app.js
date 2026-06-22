@@ -484,17 +484,21 @@ function startRun(planId) {
 
     const range = DB.repRange(e);
     const rec = DB.recommendNext(last.length ? last : null, range, DB.DEFAULT_INC, e.sets);
-    // Prefill each set with LAST TIME's numbers so there's no math to redo. The
-    // progressive-overload target is shown as a highlight + arrow on the cell to
-    // push (see render), not baked into the prefilled value.
+    const graduating = rec.dir === 'up'; // hit the top of the range last time -> add weight
+    // Prefill each set with the plan for THIS session:
+    //  - holding weight         -> last time's numbers (then push reps toward the top)
+    //  - graduating (weight up) -> the NEW heavier weight, with reps RESET to the
+    //    bottom of the range. Double progression goes one way at a time: climb reps
+    //    to the top, add weight, drop reps to the bottom, climb again. Carrying the
+    //    top reps onto a heavier load (go up AND still do 12) was the bug.
     const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => ({
-      reps: last[i]?.reps ?? '',
-      weight: last[i]?.weight ?? (e.weight || ''),
+      reps: graduating ? range.min : (last[i]?.reps ?? ''),
+      weight: graduating ? rec.weight : (last[i]?.weight ?? (e.weight || '')),
       done: false,
     }));
     const lastBestReps = last.length ? Math.max(...last.map((s) => Number(s.reps) || 0)) : 0;
     const recView = { dir: rec.dir };
-    if (rec.dir === 'up') recView.newWeight = rec.weight;            // push the weight up
+    if (rec.dir === 'up') recView.newWeight = rec.weight;            // box shows it + green ring
     if (rec.dir === 'hold' && last.length) {                          // beat the reps
       recView.targetReps = lastBestReps >= range.max ? lastBestReps + 1 : range.max;
     }
@@ -589,15 +593,16 @@ function screenRun(planId) {
       }
 
       const rec = en.rec || { dir: 'first' };
-      const upW = rec.dir === 'up' && rec.newWeight != null;
+      const upW = rec.dir === 'up';                       // weight jumped this session
       const holdR = rec.dir === 'hold' && rec.targetReps != null;
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
-        // green ring + a "→ N" target chip on the exact cell to beat, per set,
-        // only while the set is un-logged. The chip sits inside the cell corner.
+        // un-logged sets show the target: a green weight box when you've graduated
+        // (the box already holds the new weight, reps reset to the bottom), or a
+        // "→ N" reps chip when holding the weight and chasing more reps.
         const wCls = upW && !s.done ? ' rec-target' : '';
         const rCls = holdR && !s.done ? ' rec-target' : '';
-        const wHint = upW && !s.done ? `<span class="cell-hint">→ ${rec.newWeight}</span>` : '';
+        const wHint = '';
         const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>` : '';
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
@@ -621,11 +626,15 @@ function screenRun(planId) {
         </div>`;
     }).join('');
 
-    const hasRec = Object.values(active.entries)
-      .some((en) => en.rec && (en.rec.dir === 'up' || en.rec.dir === 'hold'));
-    const legend = hasRec
-      ? `<p class="run-legend">Boxes show last time. <b class="rec-chip">→</b> green target = beat it for progress.</p>`
-      : '';
+    const hasHold = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'hold' && en.rec.targetReps != null);
+    const hasUp = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'up');
+    let legend = '';
+    if (hasHold || hasUp) {
+      const parts = ['Boxes show today’s target.'];
+      if (hasHold) parts.push('<b class="rec-chip">→</b> = push your reps up to it.');
+      if (hasUp) parts.push('A <b style="color:var(--accent)">green weight</b> means go heavier — reps reset to the bottom of your range; build back up before the next jump.');
+      legend = `<p class="run-legend">${parts.join(' ')}</p>`;
+    }
 
     mount(`
       <div class="timer-bar">

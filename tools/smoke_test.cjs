@@ -367,6 +367,41 @@ function check(cond, msg) {
   const resumeTxt = ((await page.locator('[data-run]').first().textContent()) || '').trim();
   check(/resume/i.test(resumeTxt), `plan shows "Resume workout" while a workout is active (${resumeTxt})`);
 
+  console.log('\n[7k] Double progression: hitting the top graduates weight AND resets reps to the bottom');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();      // Push — Bench: 4 sets, 6-8 reps
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  const bench = page.locator('.run-ex').nth(0);
+  const nSets = await bench.locator('.set-row').count();
+  for (let i = 0; i < nSets; i++) {                       // log every set at 40kg x 8 (top of range)
+    const row = bench.locator('.set-row').nth(i);
+    await row.locator('[data-f="weight"]').fill('40');
+    await row.locator('[data-f="reps"]').fill('8');
+    await row.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+    const skip = page.locator('#rest-skip'); if (await skip.count()) await skip.click().catch(() => {});
+  }
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row');
+  await page.goto(BASE + '/#/');                          // start again -> should graduate
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.run-ex .set-row');
+  const b2 = page.locator('.run-ex').nth(0);
+  const wPre = await b2.locator('[data-f="weight"]').first().inputValue();
+  const rPre = await b2.locator('[data-f="reps"]').first().inputValue();
+  check(wPre === '42.5', `graduated: weight prefilled to the new load (got ${wPre}, expected 42.5)`);
+  check(rPre === '6', `graduated: reps reset to the bottom of the range (got ${rPre}, expected 6, NOT 8)`);
+  check((await b2.locator('.input.rec-target[data-f="weight"]').count()) >= 1, 'graduated weight cell is highlighted green');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
