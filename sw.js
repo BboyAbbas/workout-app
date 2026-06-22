@@ -2,7 +2,7 @@
    Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
    (no more stale-cache surprises while iterating). Offline -> fall back to the
    cached copy. Bump CACHE on release to drop the old precache. */
-const CACHE = 'workout-v25';
+const CACHE = 'workout-v26';
 const SHELL = [
   './',
   'index.html',
@@ -69,6 +69,7 @@ self.addEventListener('push', (e) => {
     renotify: true,
     silent: false,
     vibrate: [400, 120, 400],
+    icon: 'icons/icon-192.png',
     data: { url: './' },
   };
   e.waitUntil(self.registration.showNotification(title, opts));

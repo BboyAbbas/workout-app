@@ -91,7 +91,7 @@ function mediaSession(on) { // gives the rest timer lock-screen presence while a
   } catch (_) {}
 }
 function notifyRestDone() { // fire through the SW so it shows backgrounded/locked
-  const opts = { body: 'Time for your next set', tag: 'rest', renotify: true, silent: false, vibrate: [400, 120, 400] };
+  const opts = { body: 'Time for your next set', tag: 'rest', renotify: true, silent: false, vibrate: [400, 120, 400], icon: 'icons/icon-192.png' };
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
