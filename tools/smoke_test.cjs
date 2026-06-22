@@ -401,6 +401,8 @@ function check(cond, msg) {
   check(wPre === '42.5', `graduated: weight prefilled to the new load (got ${wPre}, expected 42.5)`);
   check(rPre === '6', `graduated: reps reset to the bottom of the range (got ${rPre}, expected 6, NOT 8)`);
   check((await b2.locator('.input.rec-target[data-f="weight"]').count()) >= 1, 'graduated weight cell is highlighted green');
+  check((await b2.locator('.input.rec-target[data-f="reps"]').count()) >= 1, 'graduated reps cell is highlighted green (a recommendation)');
+  check((await b2.locator('.cell-hint').filter({ hasText: '→ 6' }).count()) >= 1, 'graduated reps cell shows the "→ 6" bottom-of-range target');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

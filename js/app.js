@@ -505,7 +505,10 @@ function startRun(planId) {
     }));
     const lastBestReps = last.length ? Math.max(...last.map((s) => Number(s.reps) || 0)) : 0;
     const recView = { dir: rec.dir };
-    if (rec.dir === 'up') recView.newWeight = rec.weight;            // box shows it + green ring
+    if (rec.dir === 'up') {                                           // weight up + reps reset
+      recView.newWeight = rec.weight;                                 // box shows it + green ring
+      recView.repTarget = range.min;                                  // reps drop to the range bottom
+    }
     if (rec.dir === 'hold' && last.length) {                          // beat the reps
       recView.targetReps = lastBestReps >= range.max ? lastBestReps + 1 : range.max;
     }
@@ -601,16 +604,18 @@ function screenRun(planId) {
 
       const rec = en.rec || { dir: 'first' };
       const upW = rec.dir === 'up';                       // weight jumped this session
+      const upR = rec.dir === 'up' && rec.repTarget != null;
       const holdR = rec.dir === 'hold' && rec.targetReps != null;
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
-        // un-logged sets show the target: a green weight box when you've graduated
-        // (the box already holds the new weight, reps reset to the bottom), or a
-        // "→ N" reps chip when holding the weight and chasing more reps.
+        // un-logged sets show the target: a green weight box + a "→ N" reps chip.
+        // Graduated -> heavier weight and reps reset to the bottom of the range
+        // (→ repMin). Holding -> same weight, chase more reps (→ targetReps).
         const wCls = upW && !s.done ? ' rec-target' : '';
-        const rCls = holdR && !s.done ? ' rec-target' : '';
+        const rCls = (holdR || upR) && !s.done ? ' rec-target' : '';
         const wHint = '';
-        const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>` : '';
+        const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>`
+                    : upR && !s.done ? `<span class="cell-hint">→ ${rec.repTarget}</span>` : '';
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
           <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
