@@ -32,7 +32,13 @@ html, body {
   font-size: 16px;
   line-height: 1.4;
   overscroll-behavior-y: none;
+  /* it's an app UI, not a document: stop accidental word-select + the
+     Android "tap to search" / long-press popups. Inputs stay selectable. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
+input, textarea, select { -webkit-user-select: text; user-select: text; }
 
 #app {
   max-width: var(--maxw);
