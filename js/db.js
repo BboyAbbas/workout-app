@@ -294,43 +294,48 @@ export function setActive(active) {
 /* ---------- starter templates ("create plans for me") ---------- */
 export const TEMPLATES = [
   {
-    name: 'Full Body',
+    name: 'Push',
     exercises: [
-      { name: 'Squat', sets: 3, repMin: 5, repMax: 8, reps: 8, weight: 0 },
-      { name: 'Bench Press', sets: 3, repMin: 5, repMax: 8, reps: 8, weight: 0 },
-      { name: 'Bent-Over Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Overhead Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Plank (sec)', sets: 3, repMin: 30, repMax: 60, reps: 60, weight: 0 },
+      { name: 'Incline Barbell Bench', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
+      { name: 'Machine Chest Fly', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Seated DB Shoulder Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Rope Triceps Pushdown', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
     ],
   },
   {
-    name: 'Push Day',
+    name: 'Legs',
     exercises: [
-      { name: 'Bench Press', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
-      { name: 'Incline Dumbbell Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Overhead Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Lateral Raise', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
-      { name: 'Triceps Pushdown', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Smith Machine Squat', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
+      { name: 'Leg Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Leg Extension', sets: 3, repMin: 12, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Standing Calf Raise', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
     ],
   },
   {
-    name: 'Pull Day',
+    name: 'Pull',
     exercises: [
-      { name: 'Deadlift', sets: 3, repMin: 3, repMax: 6, reps: 6, weight: 0 },
-      { name: 'Pull-Up', sets: 3, repMin: 5, repMax: 10, reps: 10, weight: 0 },
-      { name: 'Barbell Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Face Pull', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
-      { name: 'Biceps Curl', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Lat Pulldown', sets: 4, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'One-Arm DB Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Face Pulls', sets: 3, repMin: 15, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Hanging Leg Raise', sets: 3, repMin: 10, repMax: 20, reps: 20, weight: 0 },
     ],
   },
   {
-    name: 'Leg Day',
+    name: 'Upper',
     exercises: [
-      { name: 'Squat', sets: 4, repMin: 4, repMax: 8, reps: 8, weight: 0 },
-      { name: 'Romanian Deadlift', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
-      { name: 'Leg Press', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
-      { name: 'Leg Curl', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
-      { name: 'Calf Raise', sets: 4, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Machine Chest Press', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'Seated Cable Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+      { name: 'DB Lateral Raises', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'DB Hammer Curls', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0 },
+    ],
+  },
+  {
+    name: 'Lower',
+    exercises: [
+      { name: 'Romanian Deadlift', sets: 4, repMin: 6, repMax: 10, reps: 10, weight: 0 },
+      { name: 'Walking Lunges', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0 },
+      { name: 'Back Hyperextension', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
+      { name: 'Cable Woodchopper', sets: 3, repMin: 12, repMax: 20, reps: 20, weight: 0 },
     ],
   },
   {

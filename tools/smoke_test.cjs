@@ -130,7 +130,7 @@ function check(cond, msg) {
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row');
   const s1 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
-  check(s1.length === 1 && s1[0].entries.length === 1 && s1[0].entries[0].name === 'Squat',
+  check(s1.length === 1 && s1[0].entries.length === 1 && s1[0].entries[0].name === 'Incline Barbell Bench',
     `session 1 saved only the logged exercise (entries=${s1[0] ? s1[0].entries.map(e => e.name).join(',') : 'none'})`);
 
   // session 2: start again; Squat is now PREFILLED with a recommendation but
@@ -167,12 +167,12 @@ function check(cond, msg) {
     await page.locator('#logbtn').click();
     await page.waitForTimeout(120);
   };
-  await logEx(0); // Squat
-  await logEx(2); // Bent-Over Row
-  // remove "Bent-Over Row" from the plan while the workout is active
+  await logEx(0); // Incline Barbell Bench
+  await logEx(2); // Seated DB Shoulder Press
+  // remove the 3rd exercise from the plan while the workout is active
   await page.evaluate(() => {
     const pl = JSON.parse(localStorage.getItem('wt_plans_v1'));
-    pl[0].exercises = pl[0].exercises.filter((e) => e.name !== 'Bent-Over Row');
+    pl[0].exercises = pl[0].exercises.filter((e) => e.name !== 'Seated DB Shoulder Press');
     localStorage.setItem('wt_plans_v1', JSON.stringify(pl));
   });
   await page.goto(BASE + '/#/');
@@ -185,7 +185,7 @@ function check(cond, msg) {
   await page.waitForTimeout(200);
   const sd = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'));
   const savedNames = sd[0] ? sd[0].entries.map((e) => e.name) : [];
-  check(savedNames.includes('Squat') && savedNames.includes('Bent-Over Row'),
+  check(savedNames.includes('Incline Barbell Bench') && savedNames.includes('Seated DB Shoulder Press'),
     `both logged exercises saved despite plan edit (${savedNames.join(',')})`);
 
   console.log('\n[7e] Insights extras (calendar/records), exercise chart, PR toast');
@@ -274,8 +274,8 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForSelector('[data-tpl="4"]');            // Cardio template
-  await page.locator('[data-tpl="4"]').click();
+  await page.waitForSelector('[data-tpl="5"]');            // Cardio template (now last)
+  await page.locator('[data-tpl="5"]').click();
   await page.waitForSelector('#tpl-add'); await page.locator('#tpl-add').click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
