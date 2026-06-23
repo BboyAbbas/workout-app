@@ -491,16 +491,13 @@ function startRun(planId) {
 
     const range = DB.repRange(e);
     const rec = DB.recommendNext(last.length ? last : null, range, DB.incFor(e), e.sets);
-    const graduating = rec.dir === 'up'; // hit the top of the range last time -> add weight
-    // Prefill each set with the plan for THIS session:
-    //  - holding weight         -> last time's numbers (then push reps toward the top)
-    //  - graduating (weight up) -> the NEW heavier weight, with reps RESET to the
-    //    bottom of the range. Double progression goes one way at a time: climb reps
-    //    to the top, add weight, drop reps to the bottom, climb again. Carrying the
-    //    top reps onto a heavier load (go up AND still do 12) was the bug.
+    // Prefill each set with LAST TIME's ACTUAL numbers — the boxes always show what
+    // you really did (e.g. 16 x 12). The recommendation for next time (heavier
+    // weight, reset reps) is shown as green "→ N" arrows on the cells (see render),
+    // NEVER baked into the boxes.
     const sets = Array.from({ length: Math.max(1, e.sets) }, (_, i) => ({
-      reps: graduating ? range.min : (last[i]?.reps ?? ''),
-      weight: graduating ? rec.weight : (last[i]?.weight ?? (e.weight || '')),
+      reps: last[i]?.reps ?? '',
+      weight: last[i]?.weight ?? (e.weight || ''),
       done: false,
     }));
     const lastBestReps = last.length ? Math.max(...last.map((s) => Number(s.reps) || 0)) : 0;
@@ -603,17 +600,17 @@ function screenRun(planId) {
       }
 
       const rec = en.rec || { dir: 'first' };
-      const upW = rec.dir === 'up';                       // weight jumped this session
+      const upW = rec.dir === 'up' && rec.newWeight != null;
       const upR = rec.dir === 'up' && rec.repTarget != null;
       const holdR = rec.dir === 'hold' && rec.targetReps != null;
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
-        // un-logged sets show the target: a green weight box + a "→ N" reps chip.
-        // Graduated -> heavier weight and reps reset to the bottom of the range
-        // (→ repMin). Holding -> same weight, chase more reps (→ targetReps).
+        // Boxes hold LAST time's numbers; green "→ N" arrows show the target for
+        // next time: graduated -> heavier weight (→ newWeight) and reps reset to the
+        // range bottom (→ repMin); holding -> same weight, more reps (→ targetReps).
         const wCls = upW && !s.done ? ' rec-target' : '';
         const rCls = (holdR || upR) && !s.done ? ' rec-target' : '';
-        const wHint = '';
+        const wHint = upW && !s.done ? `<span class="cell-hint">→ ${rec.newWeight}</span>` : '';
         const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>`
                     : upR && !s.done ? `<span class="cell-hint">→ ${rec.repTarget}</span>` : '';
         return `
@@ -642,9 +639,8 @@ function screenRun(planId) {
     const hasUp = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'up');
     let legend = '';
     if (hasHold || hasUp) {
-      const parts = ['Boxes show today’s target.'];
-      if (hasHold) parts.push('<b class="rec-chip">→</b> = push your reps up to it.');
-      if (hasUp) parts.push('A <b style="color:var(--accent)">green weight</b> means go heavier — reps reset to the bottom of your range; build back up before the next jump.');
+      const parts = ['Boxes show last time.', '<b class="rec-chip">→</b> green = your target this time.'];
+      if (hasUp) parts.push('After a weight jump the reps target drops to the bottom of your range.');
       legend = `<p class="run-legend">${parts.join(' ')}</p>`;
     }
 

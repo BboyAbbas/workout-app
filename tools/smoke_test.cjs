@@ -367,7 +367,7 @@ function check(cond, msg) {
   const resumeTxt = ((await page.locator('[data-run]').first().textContent()) || '').trim();
   check(/resume/i.test(resumeTxt), `plan shows "Resume workout" while a workout is active (${resumeTxt})`);
 
-  console.log('\n[7k] Double progression: hitting the top graduates weight AND resets reps to the bottom');
+  console.log('\n[7k] Double progression: boxes keep last-time numbers; arrows show the next target');
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -398,11 +398,12 @@ function check(cond, msg) {
   const b2 = page.locator('.run-ex').nth(0);
   const wPre = await b2.locator('[data-f="weight"]').first().inputValue();
   const rPre = await b2.locator('[data-f="reps"]').first().inputValue();
-  check(wPre === '42.5', `graduated: weight prefilled to the new load (got ${wPre}, expected 42.5)`);
-  check(rPre === '6', `graduated: reps reset to the bottom of the range (got ${rPre}, expected 6, NOT 8)`);
-  check((await b2.locator('.input.rec-target[data-f="weight"]').count()) >= 1, 'graduated weight cell is highlighted green');
-  check((await b2.locator('.input.rec-target[data-f="reps"]').count()) >= 1, 'graduated reps cell is highlighted green (a recommendation)');
-  check((await b2.locator('.cell-hint').filter({ hasText: '→ 6' }).count()) >= 1, 'graduated reps cell shows the "→ 6" bottom-of-range target');
+  check(wPre === '40', `graduated: weight box still shows what you DID last time (got ${wPre}, expected 40)`);
+  check(rPre === '8', `graduated: reps box still shows what you DID last time (got ${rPre}, expected 8)`);
+  check((await b2.locator('.input.rec-target[data-f="weight"]').count()) >= 1, 'graduated weight cell highlighted green');
+  check((await b2.locator('.cell-hint').filter({ hasText: '→ 42.5' }).count()) >= 1, 'weight shows the "→ 42.5" recommendation arrow');
+  check((await b2.locator('.input.rec-target[data-f="reps"]').count()) >= 1, 'graduated reps cell highlighted green');
+  check((await b2.locator('.cell-hint').filter({ hasText: '→ 6' }).count()) >= 1, 'reps shows the "→ 6" recommendation arrow');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
