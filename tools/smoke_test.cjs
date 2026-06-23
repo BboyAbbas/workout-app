@@ -445,6 +445,27 @@ function check(cond, msg) {
   check((await l2.locator('.cell-hint').filter({ hasText: '→ 10' }).count()) >= 1, 'set 2 reps arrow is "→ 10" (did 9, +1)');
   check((await l2.locator('.cell-hint').filter({ hasText: '→ 9' }).count()) >= 1, 'set 3 reps arrow is "→ 9" (did 8, +1)');
 
+  console.log('\n[7m] Swap rule: history keyed by name — no override, exact switch-back restores');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  const swapRule = await page.evaluate(async () => {
+    localStorage.clear();                                   // start clean (no wt-changed -> no cloud push)
+    const DB = await import('/js/db.js');
+    DB.addSession({ id: 's_hist', planId: 'p', startedAt: 1000, entries: [
+      { exerciseId: 'oldHangId', name: 'Hanging Leg Raise', kind: 'strength',
+        sets: [{ reps: 13, weight: 0 }, { reps: 12, weight: 0 }] },
+    ]});
+    return {
+      newSwap: DB.lastEntryForExercise('lyingId', 'Lying Knee Raises'),        // different name -> fresh
+      renameSameId: DB.lastEntryForExercise('oldHangId', 'Lying Knee Raises'), // SAME id, new name -> still fresh
+      backByName: DB.lastEntryForExercise('brandNewId', 'Hanging Leg Raise'),  // exact name -> restored
+    };
+  });
+  check(swapRule.newSwap === null, 'swap to a NEW exercise name inherits no history (no override)');
+  check(swapRule.renameSameId === null, 'rename-in-place (same id, new name) inherits no history either');
+  check(Array.isArray(swapRule.backByName) && swapRule.backByName.length === 2 && swapRule.backByName[0].reps === 13,
+    'switching back to the exact old name restores the full history');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

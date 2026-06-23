@@ -214,13 +214,17 @@ export function deleteSession(id) {
  * Returns the array of sets [{reps, weight}] or null.
  */
 export function lastEntryForExercise(exerciseId, exerciseName) {
+  // History is keyed by exercise NAME (case-insensitive). Progress follows the
+  // name: swap a plan's exercise for a different one and the new name starts
+  // fresh — it NEVER inherits the old exercise's numbers, even if it reuses the
+  // same id (an in-place rename). Switch back to the exact old name and its full
+  // history returns as it was. Id is only a fallback for legacy rows logged
+  // without a name.
+  const name = String(exerciseName || '').toLowerCase();
   for (const s of getSessions()) {
-    let entry = s.entries.find((e) => e.exerciseId === exerciseId);
-    if (!entry && exerciseName) {
-      entry = s.entries.find(
-        (e) => (e.name || '').toLowerCase() === exerciseName.toLowerCase()
-      );
-    }
+    const entry = name
+      ? s.entries.find((e) => String(e.name || '').toLowerCase() === name)
+      : s.entries.find((e) => e.exerciseId === exerciseId);
     if (entry && entry.sets && entry.sets.length) return entry.sets;
   }
   return null;
@@ -365,7 +369,7 @@ export const TEMPLATES = [
       { name: 'Lat Pulldown', sets: 4, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 120 },
       { name: 'One-Arm DB Row', sets: 3, repMin: 8, repMax: 12, reps: 12, weight: 0, rest: 90 },
       { name: 'Face Pulls', sets: 3, repMin: 15, repMax: 20, reps: 20, weight: 0, rest: 45 },
-      { name: 'Hanging Leg Raise', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0, rest: 60 },
+      { name: 'Lying Knee Raises', sets: 3, repMin: 10, repMax: 15, reps: 15, weight: 0, rest: 60 },
       { name: 'StairMaster', kind: 'stairmaster', sets: 1, rest: 0 },
     ],
   },
