@@ -209,6 +209,28 @@ export function deleteSession(id) {
 }
 
 /**
+ * Build the SAVED entries for a finished session from an in-progress workout:
+ * only the sets the user actually logged (`done`), normalised to numbers. Shared
+ * by the manual Finish button and the idle auto-finish so both save an identical
+ * shape. Pure (no storage) — safe to unit test.
+ */
+export function buildSessionEntries(active) {
+  const out = [];
+  for (const en of Object.values((active && active.entries) || {})) {
+    const cardio = isCardio(en);
+    const fields = cardio ? (en.fields || cardioFields(en.kind)) : null;
+    const sets = (en.sets || [])
+      .filter((s) => s.done)
+      .map((s) => {
+        if (cardio) { const o = {}; for (const f of fields) o[f.key] = Number(s[f.key]) || 0; return o; }
+        return { reps: Number(s.reps) || 0, weight: Number(s.weight) || 0 };
+      });
+    if (sets.length) out.push({ exerciseId: en.exerciseId, name: en.name, kind: en.kind || 'strength', sets });
+  }
+  return out;
+}
+
+/**
  * Most recent logged performance for a single exercise (by id, then
  * by name as a fallback so renaming a plan's exercise still matches).
  * Returns the array of sets [{reps, weight}] or null.
@@ -339,6 +361,16 @@ export function getActive() {
 export function setActive(active) {
   if (active) write(KEY_ACTIVE, active);
   else localStorage.removeItem(KEY_ACTIVE);
+}
+/** Stamp the active workout's last-interaction time (drives the idle watchdog).
+ *  Cheap — writes only KEY_ACTIVE, never triggers cloud sync. Returns the active
+ *  workout with the new timestamp, or null if none is in progress. */
+export function touchActive() {
+  const a = getActive();
+  if (!a) return null;
+  a.lastActivityAt = Date.now();
+  setActive(a);
+  return a;
 }
 
 /* ---------- starter templates ("create plans for me") ---------- */

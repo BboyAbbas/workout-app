@@ -32,6 +32,20 @@ function json(obj, status, headers) {
   });
 }
 
+/* ---------- push message + Durable Object routing, per alarm kind ---------- */
+// Each kind gets its OWN DO instance so a short rest alarm and the long idle /
+// auto-finish alarms never overwrite one another's single alarm slot.
+function doName(id, kind) { return kind === 'rest' ? id : kind + ':' + id; }
+function msgFor(kind) {
+  if (kind === 'idle') {
+    return { title: 'Hey, are you still there?', body: "Your workout's still running — tap to finish it.", tag: 'workout-watch' };
+  }
+  if (kind === 'autofinish') {
+    return { title: 'Workout auto-finished ✅', body: 'No activity for a while — your logged sets are saved.', tag: 'workout-watch' };
+  }
+  return { title: 'Rest done 💪', body: 'Time for your next set', tag: 'rest' };
+}
+
 /* ---------- base64url helpers ---------- */
 function b64urlFromBytes(bytes) {
   let s = '';
@@ -80,9 +94,10 @@ export class RestAlarm {
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === '/schedule') {
-      const { id, fireAt } = await req.json();
+      const { id, fireAt, msg } = await req.json();
       if (!id || !fireAt) return new Response('bad', { status: 400 });
       await this.state.storage.put('id', id);
+      await this.state.storage.put('msg', msg || null); // text the SW shows when this alarm fires
       // clamp into the future so a stale clock can't make the alarm never fire
       await this.state.storage.setAlarm(Math.max(Date.now() + 500, fireAt));
       return new Response('ok');
@@ -97,6 +112,9 @@ export class RestAlarm {
   async alarm() {
     const id = await this.state.storage.get('id');
     if (!id) return;
+    // stash the message text so the (payload-less) push can be rendered by the SW
+    const msg = await this.state.storage.get('msg');
+    if (msg) { try { await this.env.WORKOUT_KV.put('notif:' + id, JSON.stringify(msg), { expirationTtl: 600 }); } catch (_) {} }
     const raw = await this.env.WORKOUT_KV.get('push:' + id);
     if (!raw) return;
     let sub; try { sub = JSON.parse(raw); } catch (_) { return; }
@@ -153,19 +171,31 @@ export default {
       return json({ ok: true }, 200, h);
     }
 
-    /* ---- push: schedule / cancel the rest-done alarm (Durable Object) ---- */
+    /* ---- push: the latest message text for the SW to render (payload-less push) ---- */
+    if (url.pathname === '/push/notif' && req.method === 'GET') {
+      const raw = await env.WORKOUT_KV.get('notif:' + id);
+      return json(raw ? JSON.parse(raw) : {}, 200, h);
+    }
+
+    /* ---- push: schedule / cancel a Durable Object alarm, per kind ----
+       kinds: 'rest' (rest-done), 'idle' (20-min "still there?"), 'autofinish'
+       (50-min auto-finish notice). Each kind is its own DO instance so their
+       alarms can coexist. */
     if (url.pathname === '/push/schedule' && req.method === 'POST') {
       let body; try { body = await req.json(); } catch (_) { return json({ error: 'bad json' }, 400, h); }
       const fireAt = Number(body && body.fireAt);
+      const kind = String((body && body.kind) || 'rest');
       if (!Number.isFinite(fireAt)) return json({ error: 'bad fireAt' }, 400, h);
-      const stub = env.REST_ALARM.get(env.REST_ALARM.idFromName(id));
-      await stub.fetch('https://do/schedule', { method: 'POST', body: JSON.stringify({ id, fireAt }) });
-      return json({ ok: true, fireAt }, 200, h);
+      const stub = env.REST_ALARM.get(env.REST_ALARM.idFromName(doName(id, kind)));
+      await stub.fetch('https://do/schedule', { method: 'POST', body: JSON.stringify({ id, fireAt, msg: msgFor(kind) }) });
+      return json({ ok: true, fireAt, kind }, 200, h);
     }
     if (url.pathname === '/push/cancel' && req.method === 'POST') {
-      const stub = env.REST_ALARM.get(env.REST_ALARM.idFromName(id));
+      let body = {}; try { body = await req.json(); } catch (_) {}
+      const kind = String((body && body.kind) || 'rest');
+      const stub = env.REST_ALARM.get(env.REST_ALARM.idFromName(doName(id, kind)));
       await stub.fetch('https://do/cancel', { method: 'POST' });
-      return json({ ok: true }, 200, h);
+      return json({ ok: true, kind }, 200, h);
     }
 
     return json({ error: 'not found' }, 404, h);

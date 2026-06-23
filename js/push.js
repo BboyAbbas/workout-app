@@ -52,13 +52,18 @@ export async function ensurePushSubscribed() {
   finally { subscribing = false; }
 }
 
+/** True only when we can actually show a notification — gates all scheduling so
+ *  we never arm a server alarm that can't be delivered (and so tests, which have
+ *  no permission, never touch the live alarm). */
+function granted() { return typeof Notification !== 'undefined' && Notification.permission === 'granted'; }
+
 /** Ask the server to fire a rest-done push at `endAtMs` (absolute ms). */
 export async function scheduleServerRestAlert(endAtMs) {
+  if (!granted() || !Number.isFinite(endAtMs)) return;
   try {
-    if (!Number.isFinite(endAtMs)) return;
     await ensurePushSubscribed();
     await fetch(url('/push/schedule'), {
-      method: 'POST', headers: authHeaders(), body: JSON.stringify({ fireAt: Math.round(endAtMs) }),
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({ fireAt: Math.round(endAtMs), kind: 'rest' }),
     });
   } catch (_) {}
 }
@@ -66,6 +71,35 @@ export async function scheduleServerRestAlert(endAtMs) {
 /** Cancel a pending server rest alert (rest skipped / finished early / on-screen). */
 export async function cancelServerRestAlert() {
   try {
-    await fetch(url('/push/cancel'), { method: 'POST', headers: authHeaders(), body: '{}' });
+    await fetch(url('/push/cancel'), { method: 'POST', headers: authHeaders(), body: JSON.stringify({ kind: 'rest' }) });
+  } catch (_) {}
+}
+
+/* ---- idle watchdog: a "still there?" nudge, then a later auto-finish notice ----
+   Two independent server alarms (separate from the rest alarm), re-armed off the
+   user's last activity and cancelled when the workout ends. The actual save at
+   auto-finish happens in the app (the server can't touch local data) — these just
+   deliver the heads-up so the user returns and the app finalises on open. */
+export async function scheduleWorkoutWatchdog(idleAtMs, finishAtMs) {
+  if (!granted()) return;
+  try {
+    await ensurePushSubscribed();
+    if (Number.isFinite(idleAtMs)) {
+      await fetch(url('/push/schedule'), {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ fireAt: Math.round(idleAtMs), kind: 'idle' }),
+      });
+    }
+    if (Number.isFinite(finishAtMs)) {
+      await fetch(url('/push/schedule'), {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ fireAt: Math.round(finishAtMs), kind: 'autofinish' }),
+      });
+    }
+  } catch (_) {}
+}
+
+export async function cancelWorkoutWatchdog() {
+  try {
+    await fetch(url('/push/cancel'), { method: 'POST', headers: authHeaders(), body: JSON.stringify({ kind: 'idle' }) });
+    await fetch(url('/push/cancel'), { method: 'POST', headers: authHeaders(), body: JSON.stringify({ kind: 'autofinish' }) });
   } catch (_) {}
 }

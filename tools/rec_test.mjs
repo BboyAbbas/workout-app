@@ -1,6 +1,6 @@
 /* Unit tests for the double-progression engine in js/db.js.
    Pure functions, no DOM/localStorage — run with `node tools/rec_test.mjs`. */
-import { recommendNext, repRange, DEFAULT_INC, incFor, roundToStep } from '../js/db.js';
+import { recommendNext, repRange, DEFAULT_INC, incFor, roundToStep, buildSessionEntries } from '../js/db.js';
 
 let pass = 0, fail = 0;
 function ok(name, cond) {
@@ -144,6 +144,29 @@ console.log('recommendNext — dumbbell graduates to a REAL weight (16 -> 18, no
 
 console.log('DEFAULT_INC is 2.5:');
 eq('inc', DEFAULT_INC, 2.5);
+
+console.log('buildSessionEntries — saves only logged sets, coerced to numbers:');
+{
+  const active = { entries: {
+    a: { exerciseId: 'a', name: 'Bench Press', kind: 'strength', sets: [
+      { reps: '8', weight: '60', done: true },
+      { reps: '7', weight: '60', done: true },
+      { reps: '', weight: '', done: false } ] },
+    b: { exerciseId: 'b', name: 'Lat Pulldown', kind: 'strength', sets: [
+      { reps: '10', weight: '50', done: false } ] }, // nothing logged -> dropped
+  } };
+  const out = buildSessionEntries(active);
+  eq('only exercises with logged sets are saved', out.length, 1);
+  eq('name kept', out[0].name, 'Bench Press');
+  eq('only the done sets kept', out[0].sets.length, 2);
+  eq('reps coerced to number', out[0].sets[0].reps, 8);
+  eq('weight coerced to number', out[0].sets[0].weight, 60);
+}
+console.log('buildSessionEntries — nothing logged / null -> []:');
+{
+  eq('empty entries', buildSessionEntries({ entries: {} }).length, 0);
+  eq('null-safe', buildSessionEntries(null).length, 0);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

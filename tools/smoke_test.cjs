@@ -466,6 +466,71 @@ function check(cond, msg) {
   check(Array.isArray(swapRule.backByName) && swapRule.backByName.length === 2 && swapRule.backByName[0].reps === 13,
     'switching back to the exact old name restores the full history');
 
+  console.log('\n[7n] Idle auto-finish: a workout left idle >50 min saves its logged sets');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').filter({ hasText: 'Pull' }).first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  {
+    const row = page.locator('.run-ex').nth(0).locator('.set-row').nth(0);   // Lat Pulldown, set 1
+    await row.locator('[data-f="weight"]').fill('50');
+    await row.locator('[data-f="reps"]').fill('10');
+    await row.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+    const skip = page.locator('#rest-skip'); if (await skip.count()) await skip.click().catch(() => {});
+  }
+  // pretend the workout has sat idle for 51 minutes, then bring the app to the foreground
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_active_v1'));
+    a.lastActivityAt = Date.now() - 51 * 60 * 1000;
+    a.startedAt = Date.now() - 60 * 60 * 1000;
+    localStorage.setItem('wt_active_v1', JSON.stringify(a));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await page.waitForTimeout(250);
+  const af = await page.evaluate(() => ({
+    active: localStorage.getItem('wt_active_v1'),
+    sessions: JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'),
+    now: Date.now(),
+  }));
+  check(af.active === null, 'auto-finish cleared the in-progress workout');
+  check(af.sessions.length === 1, 'auto-finish saved exactly one session');
+  {
+    const ent = ((af.sessions[0] && af.sessions[0].entries) || []).find((e) => e.name === 'Lat Pulldown');
+    check(!!ent && ent.sets.length === 1 && ent.sets[0].reps === 10 && ent.sets[0].weight === 50,
+      'saved session keeps the logged set (Lat Pulldown 50x10)');
+    check((af.sessions[0] && af.sessions[0].endedAt) < af.now - 50 * 60 * 1000,
+      'session end time = last activity (~51 min ago), not "now"');
+  }
+
+  console.log('\n[7o] Idle auto-finish: a workout with NO logged sets is cleared, not saved');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').filter({ hasText: 'Pull' }).first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_active_v1'));
+    a.lastActivityAt = Date.now() - 51 * 60 * 1000;
+    localStorage.setItem('wt_active_v1', JSON.stringify(a));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await page.waitForTimeout(250);
+  const emptyAf = await page.evaluate(() => ({
+    active: localStorage.getItem('wt_active_v1'),
+    sessions: JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]'),
+  }));
+  check(emptyAf.active === null, 'empty workout was cleared');
+  check(emptyAf.sessions.length === 0, 'empty workout saved no session');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

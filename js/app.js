@@ -6,13 +6,17 @@
 
 import * as DB from './db.js';
 import { initSync, pull, push } from './sync.js';
-import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert } from './push.js';
+import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert, scheduleWorkoutWatchdog, cancelWorkoutWatchdog } from './push.js';
 import {
   esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
   icons, toast, summariseSets, summariseCardio,
 } from './ui.js';
 
 const app = document.getElementById('app');
+
+// idle watchdog thresholds — reset by any interaction during a workout
+const IDLE_NUDGE_MS = 20 * 60 * 1000;   // "still there?" push after 20 min idle
+const AUTO_FINISH_MS = 50 * 60 * 1000;  // auto-finish a workout left idle this long
 
 /* timers that must be cleared whenever we leave a screen */
 let tickers = [];
@@ -527,7 +531,9 @@ function startRun(planId) {
       sets,
     };
   }
-  DB.setActive({ planId, planName: plan.name, startedAt: Date.now(), entries });
+  const now = Date.now();
+  DB.setActive({ planId, planName: plan.name, startedAt: now, lastActivityAt: now, entries });
+  scheduleWorkoutWatchdog(now + IDLE_NUDGE_MS, now + AUTO_FINISH_MS); // arm the idle nudge + auto-finish notice
   go('#/plan/' + planId + '/run');
 }
 
@@ -691,6 +697,11 @@ function screenRun(planId) {
   function drawElapsed() {
     const elEl = qs('#elapsed');
     if (elEl) elEl.textContent = fmtClock((Date.now() - active.startedAt) / 1000);
+    // foreground auto-finish: idle past the limit -> wrap it up at the last activity time
+    if (idleMsOf(DB.getActive()) >= AUTO_FINISH_MS) {
+      const r = finalizeStaleWorkout();
+      if (r) go(r === 'saved' ? '#/plan/' + planId + '/history' : '#/');
+    }
   }
 
   /* ---- rest countdown (timestamp-based, survives background) ---- */
@@ -849,7 +860,7 @@ function screenRun(planId) {
     qs('#finish').addEventListener('click', finishWorkout);
     qs('#discard').addEventListener('click', () => {
       if (confirm('Discard this workout? Nothing will be saved.')) {
-        stopRest(); DB.setActive(null); go('#/plan/' + planId);
+        stopRest(); cancelWorkoutWatchdog(); DB.setActive(null); go('#/plan/' + planId);
       }
     });
   }
@@ -879,6 +890,7 @@ function screenRun(planId) {
 
   function finishWorkout() {
     stopRest();
+    cancelWorkoutWatchdog(); // workout ending — drop the idle nudge + auto-finish alarms
     const endedAt = Date.now();
     const durationSec = Math.round((endedAt - active.startedAt) / 1000);
     const entries = order.map((exId) => {
@@ -1280,11 +1292,12 @@ function screenSettings() {
         <div class="kv"><span>Logged workouts</span><b>${DB.getSessions().length}</b></div>
       </div>
 
-      <div class="section-label">Rest alerts</div>
+      <div class="section-label">Workout alerts</div>
       <div class="card">
         <div class="kv"><span>Status</span><b id="notif-status">${esc(notifStatusText())}</b></div>
+        <p class="desc" style="color:var(--muted);margin:8px 0 0">Buzzes when rest ends, nudges if a workout sits idle 20 min, and auto-finishes one left running for 50 min.</p>
       </div>
-      <button class="btn btn-block" id="notif-enable">${icons.check} Enable rest alerts</button>
+      <button class="btn btn-block" id="notif-enable">${icons.check} Enable workout alerts</button>
 
       <div class="section-label">Cloud sync</div>
       <div class="card">
@@ -1314,7 +1327,7 @@ function screenSettings() {
     try {
       const res = await Notification.requestPermission(); // this is the "Allow" prompt
       refreshNotif();
-      if (res === 'granted') { await ensurePushSubscribed(); toast('Rest alerts on'); }
+      if (res === 'granted') { await ensurePushSubscribed(); toast('Workout alerts on'); }
       else if (res === 'denied') toast('Blocked — enable it in site settings');
       else toast('Not enabled yet — tap again');
     } catch (_) { toast('Could not enable'); }
@@ -1392,3 +1405,54 @@ router();
 initSync(() => router()).then(() => {
   if (!DB.getPlans().length) { DB.seedDefaultPlans(); router(); }
 });
+
+/* ============================================================
+   Idle watchdog (client side): nudge at 20 min, auto-finish at 50 min.
+   The notifications are armed server-side (push.js) so they reach a closed app;
+   the actual SAVE can only happen here, so we also finalise a stale workout
+   whenever the app is opened or returns to the foreground.
+   ============================================================ */
+function idleMsOf(a) { return a ? Date.now() - (a.lastActivityAt || a.startedAt || Date.now()) : 0; }
+
+function finalizeStaleWorkout() {
+  const a = DB.getActive();
+  if (!a || idleMsOf(a) < AUTO_FINISH_MS) return null;
+  cancelWorkoutWatchdog();
+  const entries = DB.buildSessionEntries(a);
+  if (entries.length) {
+    const endedAt = a.lastActivityAt || a.startedAt; // ended at the last real activity, not "now"
+    const setCount = entries.reduce((n, e) => n + e.sets.length, 0);
+    DB.addSession({
+      id: DB.uid(), planId: a.planId, planName: a.planName,
+      startedAt: a.startedAt, endedAt,
+      durationSec: Math.max(0, Math.round((endedAt - a.startedAt) / 1000)),
+      entries,
+    });
+    DB.setActive(null);
+    toast(`Auto-finished a workout you left running — ${setCount} set${setCount === 1 ? '' : 's'} saved`);
+    return 'saved';
+  }
+  DB.setActive(null);
+  toast('Cleared a workout you left running (nothing was logged)');
+  return 'cleared';
+}
+
+let _lastWatchdogArm = 0;
+function bumpActivity() {
+  const a = DB.touchActive();           // stamp last-activity locally (also drives client auto-finish)
+  if (!a) return;
+  const now = a.lastActivityAt;
+  if (now - _lastWatchdogArm < 20000) return; // throttle the server re-arm; local stamp already done
+  _lastWatchdogArm = now;
+  scheduleWorkoutWatchdog(now + IDLE_NUDGE_MS, now + AUTO_FINISH_MS);
+}
+
+['pointerdown', 'keydown'].forEach((ev) =>
+  document.addEventListener(ev, bumpActivity, { capture: true, passive: true }));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && finalizeStaleWorkout()) router();
+});
+window.addEventListener('focus', () => { if (finalizeStaleWorkout()) router(); });
+
+// on boot: finish any workout left running past the limit since last time
+if (finalizeStaleWorkout()) router();
