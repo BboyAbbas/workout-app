@@ -500,14 +500,20 @@ function startRun(planId) {
       weight: last[i]?.weight ?? (e.weight || ''),
       done: false,
     }));
-    const lastBestReps = last.length ? Math.max(...last.map((s) => Number(s.reps) || 0)) : 0;
     const recView = { dir: rec.dir };
     if (rec.dir === 'up') {                                           // weight up + reps reset
       recView.newWeight = rec.weight;                                 // box shows it + green ring
       recView.repTarget = range.min;                                  // reps drop to the range bottom
     }
-    if (rec.dir === 'hold' && last.length) {                          // beat the reps
-      recView.targetReps = lastBestReps >= range.max ? lastBestReps + 1 : range.max;
+    if (rec.dir === 'hold' && last.length) {                          // beat last time by ONE rep/set
+      // Per-set target = what THIS set did last time, plus one, capped at the top of
+      // the range — small beatable wins, not a jump to the ceiling. Once every set
+      // hits the top, recommendNext returns 'up' and this branch won't run.
+      recView.repTargets = sets.map((_, i) => {
+        const lr = Number(last[i] && last[i].reps);
+        if (!Number.isFinite(lr) || lr <= 0) return range.max;       // no history -> aim top
+        return Math.max(range.min, Math.min(lr + 1, range.max));
+      });
     }
     entries[e.id] = {
       exerciseId: e.id,
@@ -602,16 +608,18 @@ function screenRun(planId) {
       const rec = en.rec || { dir: 'first' };
       const upW = rec.dir === 'up' && rec.newWeight != null;
       const upR = rec.dir === 'up' && rec.repTarget != null;
-      const holdR = rec.dir === 'hold' && rec.targetReps != null;
+      const holdR = rec.dir === 'hold' && Array.isArray(rec.repTargets);
       const rows = en.sets.map((s, si) => {
         const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
-        // Boxes hold LAST time's numbers; green "→ N" arrows show the target for
-        // next time: graduated -> heavier weight (→ newWeight) and reps reset to the
-        // range bottom (→ repMin); holding -> same weight, more reps (→ targetReps).
+        // Boxes hold LAST time's numbers; green "→ N" arrows show the target for next
+        // time: graduated -> heavier weight (→ newWeight) with reps reset to the range
+        // bottom (→ repTarget); holding -> same weight, ONE more rep than this set did
+        // last time (→ repTargets[si]).
+        const rTarget = holdR ? rec.repTargets[si] : null;
         const wCls = upW && !s.done ? ' rec-target' : '';
-        const rCls = (holdR || upR) && !s.done ? ' rec-target' : '';
+        const rCls = ((rTarget != null) || upR) && !s.done ? ' rec-target' : '';
         const wHint = upW && !s.done ? `<span class="cell-hint">→ ${rec.newWeight}</span>` : '';
-        const rHint = holdR && !s.done ? `<span class="cell-hint">→ ${rec.targetReps}</span>`
+        const rHint = (rTarget != null) && !s.done ? `<span class="cell-hint">→ ${rTarget}</span>`
                     : upR && !s.done ? `<span class="cell-hint">→ ${rec.repTarget}</span>` : '';
         return `
         <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}">
@@ -635,11 +643,12 @@ function screenRun(planId) {
         </div>`;
     }).join('');
 
-    const hasHold = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'hold' && en.rec.targetReps != null);
+    const hasHold = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'hold' && Array.isArray(en.rec.repTargets));
     const hasUp = Object.values(active.entries).some((en) => en.rec && en.rec.dir === 'up');
     let legend = '';
     if (hasHold || hasUp) {
       const parts = ['Boxes show last time.', '<b class="rec-chip">→</b> green = your target this time.'];
+      if (hasHold) parts.push('Same weight? Add one rep to each set.');
       if (hasUp) parts.push('After a weight jump the reps target drops to the bottom of your range.');
       legend = `<p class="run-legend">${parts.join(' ')}</p>`;
     }

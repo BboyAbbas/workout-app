@@ -405,6 +405,46 @@ function check(cond, msg) {
   check((await b2.locator('.input.rec-target[data-f="reps"]').count()) >= 1, 'graduated reps cell highlighted green');
   check((await b2.locator('.cell-hint').filter({ hasText: '→ 6' }).count()) >= 1, 'reps shows the "→ 6" recommendation arrow');
 
+  console.log('\n[7l] Hold: reps arrow targets ONE more than each set did last time (capped at top)');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').filter({ hasText: 'Pull' }).first().click();   // Lat Pulldown: 4 sets, 8-12
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  const lat = page.locator('.run-ex').nth(0);                 // Lat Pulldown is first in the Pull plan
+  const latReps = [10, 9, 8, 8];                              // all sub-max (top 12) -> hold; arrows 11/10/9/9
+  for (let i = 0; i < latReps.length; i++) {
+    const row = lat.locator('.set-row').nth(i);
+    await row.locator('[data-f="weight"]').fill('40');
+    await row.locator('[data-f="reps"]').fill(String(latReps[i]));
+    await row.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+    const skip = page.locator('#rest-skip'); if (await skip.count()) await skip.click().catch(() => {});
+  }
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row');
+  await page.goto(BASE + '/#/');                              // start again -> hold (not all sets at top)
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').filter({ hasText: 'Pull' }).first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.run-ex .set-row');
+  const l2 = page.locator('.run-ex').nth(0);
+  const lw = await l2.locator('[data-f="weight"]').first().inputValue();
+  const lr0 = await l2.locator('.set-row').nth(0).locator('[data-f="reps"]').inputValue();
+  const lr1 = await l2.locator('.set-row').nth(1).locator('[data-f="reps"]').inputValue();
+  const lr2 = await l2.locator('.set-row').nth(2).locator('[data-f="reps"]').inputValue();
+  check(lw === '40', `hold: weight box shows last actual (got ${lw}, expected 40)`);
+  check(lr0 === '10' && lr1 === '9' && lr2 === '8', `hold: reps boxes show last actuals (got ${lr0}/${lr1}/${lr2}, expected 10/9/8)`);
+  check((await l2.locator('.input.rec-target[data-f="weight"]').count()) === 0, 'hold: NO weight arrow (weight stays the same)');
+  check((await l2.locator('.cell-hint').filter({ hasText: '→ 11' }).count()) >= 1, 'set 1 reps arrow is "→ 11" (did 10, +1)');
+  check((await l2.locator('.cell-hint').filter({ hasText: '→ 10' }).count()) >= 1, 'set 2 reps arrow is "→ 10" (did 9, +1)');
+  check((await l2.locator('.cell-hint').filter({ hasText: '→ 9' }).count()) >= 1, 'set 3 reps arrow is "→ 9" (did 8, +1)');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
