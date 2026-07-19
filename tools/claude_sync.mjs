@@ -29,7 +29,7 @@ if (cmd === 'get') {
   const file = process.argv[3];
   if (!file) { console.error('usage: put <file.json>'); process.exit(1); }
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const payload = { data: { plans: data.plans || [], sessions: data.sessions || [] }, updatedAt: Date.now() };
+  const payload = { data: { plans: data.plans || [], sessions: data.sessions || [], goal: data.goal || null }, updatedAt: Date.now() };
   const r = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(payload) });
   if (!r.ok) { console.error('PUT failed:', r.status, await r.text()); process.exit(1); }
   console.log('uploaded; updatedAt =', payload.updatedAt, '(app will pull on next open)');

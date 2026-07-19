@@ -18,6 +18,9 @@ function check(cond, msg) {
     viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
   });
   const page = await ctx.newPage();
+  // auto-accept every confirm the app raises (finish-without-cardio nudge,
+  // "No sets logged", reset's double confirm) — the flows under test expect "OK"
+  page.on('dialog', (d) => d.accept());
   // never touch the real cloud-sync doc from tests (return empty, no network)
   await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
@@ -134,8 +137,8 @@ function check(cond, msg) {
     `session 1 saved only the logged exercise (entries=${s1[0] ? s1[0].entries.map(e => e.name).join(',') : 'none'})`);
 
   // session 2: start again; Squat is now PREFILLED with a recommendation but
-  // log NOTHING. Finishing must save no new session.
-  page.once('dialog', (d) => d.accept()); // "No sets logged. Finish anyway?"
+  // log NOTHING. Finishing must save no new session. (global handler accepts
+  // the "No sets logged. Finish anyway?" confirm)
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
   await page.locator('.plan-card').first().click();
@@ -310,11 +313,8 @@ function check(cond, msg) {
   await page.waitForSelector('#export');
   check(await page.locator('#export').isVisible(), 'export button present');
   check(await page.locator('#reset').isVisible(), 'reset button present');
-  const acc = (d) => d.accept();
-  page.on('dialog', acc); // two confirms
-  await page.locator('#reset').click();
+  await page.locator('#reset').click(); // two confirms — global handler accepts both
   await page.waitForTimeout(200);
-  page.off('dialog', acc);
   const wiped = await page.evaluate(() => ({
     p: localStorage.getItem('wt_plans_v1'), s: localStorage.getItem('wt_sessions_v1'),
   }));

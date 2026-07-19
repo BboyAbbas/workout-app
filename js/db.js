@@ -9,6 +9,7 @@
 const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
+const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
 const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
 /* ---------- low level ---------- */
@@ -23,7 +24,7 @@ function read(key, fallback) {
 function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   // mark data dirty + notify the sync layer when plans/sessions change
-  if (key === KEY_PLANS || key === KEY_SESSIONS) {
+  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL) {
     localStorage.setItem(KEY_UPDATED, String(Date.now()));
     if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
   }
@@ -33,12 +34,25 @@ function write(key, value) {
 /** ms timestamp of the last local change to plans/sessions (0 if never). */
 export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
 /** The full syncable dataset (what gets pushed to / pulled from the cloud). */
-export function snapshot() { return { plans: getPlans(), sessions: read(KEY_SESSIONS, []) }; }
+export function snapshot() { return { plans: getPlans(), sessions: read(KEY_SESSIONS, []), goal: getGoal() }; }
 /** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
 export function applyRemote(data, ts) {
   if (data && Array.isArray(data.plans)) localStorage.setItem(KEY_PLANS, JSON.stringify(data.plans));
   if (data && Array.isArray(data.sessions)) localStorage.setItem(KEY_SESSIONS, JSON.stringify(data.sessions));
+  if (data && 'goal' in data) {
+    if (data.goal) localStorage.setItem(KEY_GOAL, JSON.stringify(data.goal));
+    else localStorage.removeItem(KEY_GOAL);
+  }
   localStorage.setItem(KEY_UPDATED, String(ts));
+}
+
+/* ---------- weight-loss goal (home-screen countdown) ---------- */
+export function getGoal() { return read(KEY_GOAL, null); }
+export function setGoal(goal) {
+  if (goal) return write(KEY_GOAL, goal);
+  localStorage.removeItem(KEY_GOAL);
+  localStorage.setItem(KEY_UPDATED, String(Date.now()));
+  if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
 
 export function uid() {

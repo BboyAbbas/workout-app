@@ -184,6 +184,23 @@ function screenHome() {
       <button class="icon-btn btn-primary" style="border-radius:12px">${icons.play}</button>
     </div>` : '';
 
+  // weight-loss lock-in banner: countdown to the goal date
+  const goal = DB.getGoal();
+  let goalBar = '';
+  if (goal && goal.endDate) {
+    const end = new Date(goal.endDate + 'T23:59:59');
+    const daysLeft = Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+    const over = end < Date.now();
+    goalBar = `
+    <div class="card" id="goal-bar" style="display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <p class="name" style="margin:0 0 2px;font-weight:650">🎯 ${esc(goal.name || 'Lock-in')} · ${esc(goal.startKg)} → ${esc(goal.targetKg)} kg</p>
+        <p class="desc" style="margin:0;color:var(--muted)">${over ? 'Goal date passed — weigh in and set the next one' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left · until ${esc(fmtDate(end.getTime()))}`}</p>
+      </div>
+      <div style="font-size:24px;font-weight:700;color:var(--accent)">${over ? '🏁' : daysLeft + 'd'}</div>
+    </div>`;
+  }
+
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -194,6 +211,7 @@ function screenHome() {
     })}
     <main class="screen">
       ${resumeBar}
+      ${goalBar}
       ${body}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
@@ -601,10 +619,13 @@ function screenRun(planId) {
             ${inputs}
           </div>`;
         }).join('');
-        const chip = (DB.CARDIO_KINDS[en.kind] || {}).label || 'Cardio';
+        // machine swap chips (StairMaster busy -> do Incline Walk instead, etc.)
+        const swap = Object.entries(DB.CARDIO_KINDS).map(([k, v]) =>
+          `<button class="btn btn-sm ${k === en.kind ? 'btn-primary' : 'btn-ghost'}" data-swapkind="${k}" data-swapex="${exId}" style="padding:4px 10px;font-size:12px">${esc(v.label)}</button>`).join('');
         return `
           <div class="card run-ex">
-            <p class="name">${esc(en.name)} <span class="kind-chip">${esc(chip)}</span></p>
+            <p class="name">${esc(en.name)}</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px">${swap}</div>
             <div class="hint-cols" style="${cols}"><span>#</span>${fields.map((f) => `<span>${esc(f.label)}</span>`).join('')}</div>
             ${crows}
             <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
@@ -669,6 +690,11 @@ function screenRun(planId) {
       <main class="screen" style="padding-bottom:200px">
         ${legend}
         ${exHtml}
+        <div class="card">
+          <p class="name" style="margin:0 0 8px;font-weight:620">Session notes</p>
+          <textarea class="input" id="session-notes" rows="3" placeholder="Anything about this session — energy, pain, machine busy, whatever."
+            style="width:100%;resize:vertical;min-height:64px;font:inherit">${esc(active.notes || '')}</textarea>
+        </div>
         <div class="spacer"></div>
         <button class="btn btn-primary btn-block" id="finish">${icons.check} Finish workout</button>
         <div class="spacer"></div>
@@ -854,6 +880,25 @@ function screenRun(planId) {
     qsa('[data-rest-dec]').forEach((b) =>
       b.addEventListener('click', () => changeRest(b.dataset.restDec, -15)));
 
+    // cardio machine swap (StairMaster busy -> Incline Walk). Logged sets keep
+    // their old machine's numbers; only pending sets switch fields.
+    qsa('[data-swapkind]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const en = active.entries[b.dataset.swapex];
+        const kind = b.dataset.swapkind;
+        if (!en || en.kind === kind) return;
+        en.kind = kind;
+        en.fields = DB.cardioFields(kind);
+        en.name = (DB.CARDIO_KINDS[kind] || {}).label || en.name;
+        en.sets.forEach((s) => { if (!s.done) for (const f of en.fields) if (!(f.key in s)) s[f.key] = ''; });
+        persist();
+        render();
+      }));
+
+    // session notes — persists as you type, saved with the session
+    const notesEl = qs('#session-notes');
+    if (notesEl) notesEl.addEventListener('input', () => { active.notes = notesEl.value; persist(); });
+
     // THE one pinned button: log the selected set, then jump to the next
     qs('#logbtn').addEventListener('click', onLog);
 
@@ -915,6 +960,13 @@ function screenRun(planId) {
       return go('#/plan/' + planId);
     }
 
+    // cardio done but not logged is the #1 lost-data case — nudge before it vanishes
+    const missedCardio = order.some((exId) => {
+      const en = active.entries[exId];
+      return en && DB.isCardio(en) && !en.sets.some((s) => s.done);
+    });
+    if (missedCardio && !confirm('Cardio not logged (minutes empty). Finish without it?')) return;
+
     const prs = DB.newPRsIn(entries); // compute BEFORE saving (needs prior history)
     DB.addSession({
       id: DB.uid(),
@@ -924,6 +976,8 @@ function screenRun(planId) {
       endedAt,
       durationSec,
       entries,
+      endReason: 'manual',
+      notes: String(active.notes || '').trim() || undefined,
     });
     DB.setActive(null);
     toast(prs.length
@@ -970,13 +1024,14 @@ function screenHistory(planId) {
     : sessions.map((s) => {
         const exCount = s.entries.length;
         const setCount = s.entries.reduce((a, e) => a + e.sets.length, 0);
+        const auto = s.endReason === 'auto';
         return `
           <div class="card hist-row tappable" data-session="${s.id}">
             <div class="when">
-              <p class="date">${esc(fmtDate(s.startedAt))}${planId ? '' : ' · ' + esc(s.planName || '')}</p>
-              <p class="summary">${fmtTime(s.startedAt)} · ${exCount} exercises · ${setCount} sets</p>
+              <p class="date">${esc(fmtDate(s.startedAt))}${planId ? '' : ' · ' + esc(s.planName || '')}${s.notes ? ' 📝' : ''}</p>
+              <p class="summary">${fmtTime(s.startedAt)} · ${exCount} exercises · ${setCount} sets${auto ? ' · <span style="color:var(--warn,#e6a23c)">auto-ended</span>' : ''}</p>
             </div>
-            <div class="dur">${fmtDuration(s.durationSec)}</div>
+            <div class="dur">${auto ? '~' : ''}${fmtDuration(s.durationSec)}</div>
           </div>`;
       }).join('');
 
@@ -1006,13 +1061,15 @@ function screenSession(sessionId) {
       <div class="card" style="display:flex;gap:18px;align-items:center">
         <div>
           <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Duration</div>
-          <div style="font-size:26px;font-weight:700;color:var(--accent)">${fmtDuration(s.durationSec)}</div>
+          <div style="font-size:26px;font-weight:700;color:var(--accent)">${s.endReason === 'auto' ? '~' : ''}${fmtDuration(s.durationSec)}</div>
         </div>
         <div style="border-left:1px solid var(--border);padding-left:18px">
           <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Sets</div>
           <div style="font-size:26px;font-weight:700">${s.entries.reduce((a, e) => a + e.sets.length, 0)}</div>
         </div>
       </div>
+      ${s.endReason === 'auto' ? `<p class="desc" style="color:var(--warn,#e6a23c);margin:0">⏱ Auto-ended — you forgot to press Finish, so the duration is approximate (measured to your last logged set).</p>` : ''}
+      ${s.notes ? `<div class="card"><p class="name" style="margin:0 0 6px;font-weight:620">📝 Notes</p><p class="desc" style="margin:0;white-space:pre-wrap">${esc(s.notes)}</p></div>` : ''}
       ${s.entries.map((e) => {
         const cardio = DB.isCardio(e);
         const fields = cardio ? DB.cardioFields(e.kind) : null;
@@ -1427,6 +1484,8 @@ function finalizeStaleWorkout() {
       startedAt: a.startedAt, endedAt,
       durationSec: Math.max(0, Math.round((endedAt - a.startedAt) / 1000)),
       entries,
+      endReason: 'auto',
+      notes: String(a.notes || '').trim() || undefined,
     });
     DB.setActive(null);
     toast(`Auto-finished a workout you left running — ${setCount} set${setCount === 1 ? '' : 's'} saved`);
