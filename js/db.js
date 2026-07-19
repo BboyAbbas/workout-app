@@ -10,6 +10,7 @@ const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
 const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
+const KEY_EXTRA = 'wt_remote_extra_v1'; // synced fields this app version doesn't know (see applyRemote)
 const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
 /* ---------- low level ---------- */
@@ -33,8 +34,21 @@ function write(key, value) {
 /* ---------- cloud-sync hooks ---------- */
 /** ms timestamp of the last local change to plans/sessions (0 if never). */
 export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
+/* Fields this app version reads and owns. Anything ELSE in the cloud doc is
+   from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
+   into every push, so an out-of-date client can never strip a field it doesn't
+   understand. */
+const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal'];
+
 /** The full syncable dataset (what gets pushed to / pulled from the cloud). */
-export function snapshot() { return { plans: getPlans(), sessions: read(KEY_SESSIONS, []), goal: getGoal() }; }
+export function snapshot() {
+  return {
+    ...read(KEY_EXTRA, {}), // unknown fields ride along untouched
+    plans: getPlans(),
+    sessions: read(KEY_SESSIONS, []),
+    goal: getGoal(),
+  };
+}
 /** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
 export function applyRemote(data, ts) {
   if (data && Array.isArray(data.plans)) localStorage.setItem(KEY_PLANS, JSON.stringify(data.plans));
@@ -43,6 +57,9 @@ export function applyRemote(data, ts) {
     if (data.goal) localStorage.setItem(KEY_GOAL, JSON.stringify(data.goal));
     else localStorage.removeItem(KEY_GOAL);
   }
+  const extra = {};
+  for (const k of Object.keys(data || {})) if (!KNOWN_SYNC_FIELDS.includes(k)) extra[k] = data[k];
+  localStorage.setItem(KEY_EXTRA, JSON.stringify(extra));
   localStorage.setItem(KEY_UPDATED, String(ts));
 }
 

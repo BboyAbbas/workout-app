@@ -531,6 +531,16 @@ function check(cond, msg) {
   check(emptyAf.active === null, 'empty workout was cleared');
   check(emptyAf.sessions.length === 0, 'empty workout saved no session');
 
+  console.log('\n[7p] Sync forward-compat: unknown cloud fields survive a pull->push round-trip');
+  const roundTrip = await page.evaluate(async () => {
+    const DB = await import('/js/db.js');
+    DB.applyRemote({ plans: [], sessions: [], goal: { targetKg: 72 }, futureField: { x: 1 } }, Date.now());
+    const snap = DB.snapshot();
+    return { kept: JSON.stringify(snap.futureField), goal: snap.goal && snap.goal.targetKg };
+  });
+  check(roundTrip.kept === '{"x":1}', `unknown field preserved into the next push (got ${roundTrip.kept})`);
+  check(roundTrip.goal === 72, 'known fields still applied normally');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 
