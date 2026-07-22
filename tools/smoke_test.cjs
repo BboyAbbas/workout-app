@@ -541,6 +541,45 @@ function check(cond, msg) {
   check(roundTrip.kept === '{"x":1}', `unknown field preserved into the next push (got ${roundTrip.kept})`);
   check(roundTrip.goal === 72, 'known fields still applied normally');
 
+  console.log('\n[7q] Sync merge: an unpushed local session survives a newer remote pull');
+  await page.evaluate(() => {
+    localStorage.setItem('wt_sessions_v1', JSON.stringify([{
+      id: 'localonly', planId: 'p', planName: 'X',
+      startedAt: Date.now() - 3600e3, endedAt: Date.now() - 3000e3, durationSec: 600,
+      entries: [{ exerciseId: 'e', name: 'Bench Press', kind: 'strength', sets: [{ reps: 5, weight: 50 }] }],
+    }]));
+    localStorage.setItem('wt_updated_at', String(Date.now() - 60e3));
+    localStorage.setItem('wt_pushed_at', '1'); // local change never reached the cloud
+  });
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  let mergedPush = null;
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**', (r) => {
+    const req = r.request();
+    if (req.method() === 'PUT') {
+      mergedPush = JSON.parse(req.postData());
+      return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+    }
+    return r.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        updatedAt: Date.now() + 1000,
+        data: { plans: [], sessions: [{ id: 'remote1', planId: 'p', planName: 'Y', startedAt: Date.now() - 7200e3, endedAt: Date.now() - 7000e3, durationSec: 200, entries: [] }] },
+      }),
+    });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // triggers pull
+  await page.waitForTimeout(1500);
+  const mergedIds = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]').map((s) => s.id).sort());
+  check(JSON.stringify(mergedIds) === JSON.stringify(['localonly', 'remote1']),
+    `local unpushed session survived the pull (got ${JSON.stringify(mergedIds)})`);
+  check(!!(mergedPush && mergedPush.data && (mergedPush.data.sessions || []).length === 2),
+    'merged doc pushed back to the cloud');
+  // restore the inert sync stub for the remaining sections
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

@@ -1,6 +1,6 @@
 /* Unit tests for the double-progression engine in js/db.js.
    Pure functions, no DOM/localStorage — run with `node tools/rec_test.mjs`. */
-import { recommendNext, repRange, DEFAULT_INC, incFor, roundToStep, buildSessionEntries } from '../js/db.js';
+import { recommendNext, repRange, DEFAULT_INC, incFor, roundToStep, nextWeightUp, buildSessionEntries } from '../js/db.js';
 
 let pass = 0, fail = 0;
 function ok(name, cond) {
@@ -140,6 +140,49 @@ console.log('recommendNext — dumbbell graduates to a REAL weight (16 -> 18, no
   const r = recommendNext(last, { min: 8, max: 12 }, incFor({ name: 'One-Arm DB Row' }), 3);
   eq('dir', r.dir, 'up');
   eq('weight = real 18kg DB (not 18.5)', r.weight, 18);
+}
+
+console.log('nextWeightUp — one real step above the current weight, on or off grid:');
+{
+  eq('on grid: 60 -> 62.5', nextWeightUp(60, 2.5), 62.5);
+  eq('on grid: 16 -> 18 (2kg DB)', nextWeightUp(16, 2), 18);
+  eq('off grid: 4 -> 5 (not 7.5)', nextWeightUp(4, 2.5), 5);
+  eq('off grid: 9 -> 10 (2kg DB, not 12)', nextWeightUp(9, 2), 10);
+  eq('off grid: 6.5 -> 7.5', nextWeightUp(6.5, 2.5), 7.5);
+}
+
+console.log('recommendNext — off-grid weight graduates one real step (4 -> 5, not 7.5):');
+{
+  // real data 2026-06-23: Standing Calf Raise 4kg, all sets past the top of 12-15
+  const last = [{ reps: 20, weight: 4 }, { reps: 15, weight: 4 }, { reps: 15, weight: 4 }];
+  const r = recommendNext(last, { min: 12, max: 15 }, 2.5, 3);
+  eq('dir', r.dir, 'up');
+  eq('weight', r.weight, 5);
+}
+
+console.log('recommendNext — a too-heavy dropped attempt is not the working weight:');
+{
+  // real data 2026-07-13: Leg Press 7 @ 80 (below the 10-12 range), dropped to 60
+  const last = [{ reps: 7, weight: 80 }, { reps: 15, weight: 60 }, { reps: 15, weight: 60 }];
+  const r = recommendNext(last, { min: 10, max: 12 }, 2.5, 3);
+  eq('dir', r.dir, 'hold');
+  eq('holds the in-range weight', r.weight, 60);
+}
+
+console.log('recommendNext — every set below the range bottom falls back to heaviest:');
+{
+  const r = recommendNext([{ reps: 7, weight: 80 }, { reps: 6, weight: 80 }], { min: 10, max: 12 }, 2.5, 2);
+  eq('dir', r.dir, 'hold');
+  eq('weight', r.weight, 80);
+}
+
+console.log('recommendNext — warm-up that hits min does not out-rank the heavier working sets:');
+{
+  // light 12 @ 40 warm-up, working sets 12 @ 60 on all 3 -> graduate off 60
+  const last = [{ reps: 12, weight: 40 }, { reps: 12, weight: 60 }, { reps: 12, weight: 60 }, { reps: 12, weight: 60 }];
+  const r = recommendNext(last, { min: 8, max: 12 }, 2.5, 3);
+  eq('dir', r.dir, 'up');
+  eq('weight from the heavier load', r.weight, 62.5);
 }
 
 console.log('DEFAULT_INC is 2.5:');

@@ -383,7 +383,12 @@ function screenEditor(id) {
           ex.repMax = hi;
           ex.reps = hi;                    // keep legacy field = top of range
           ex.weight = num(row.querySelector('[data-f=weight]')?.value, 0);
-          ex.inc = num(row.querySelector('[data-f=inc]')?.value, 0) || DB.incFor(ex); // weight step
+          // Weight step: keep only a REAL override. The field shows the name-derived
+          // default, and baking that in would freeze a 2.5 rendered before "DB ..."
+          // was typed onto a dumbbell exercise that should step by 2.
+          const incVal = num(row.querySelector('[data-f=inc]')?.value, 0);
+          if (incVal > 0 && incVal !== DB.incFor({ name: ex.name })) ex.inc = incVal;
+          else delete ex.inc;
         }
       });
     }

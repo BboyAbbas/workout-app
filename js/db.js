@@ -34,6 +34,8 @@ function write(key, value) {
 /* ---------- cloud-sync hooks ---------- */
 /** ms timestamp of the last local change to plans/sessions (0 if never). */
 export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
+/** Mark local data as changed (forces the next push) without touching content. */
+export function markDirty() { localStorage.setItem(KEY_UPDATED, String(Date.now())); }
 /* Fields this app version reads and owns. Anything ELSE in the cloud doc is
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
@@ -161,6 +163,17 @@ export function roundToStep(w, step) {
 }
 
 /**
+ * The next loadable weight ABOVE `w`: the smallest multiple of `step` strictly
+ * heavier than it. Snapping `w + step` to the grid can overshoot when `w`
+ * itself isn't on the grid (a 4 kg machine on a 2.5 step would "graduate" to
+ * 7.5) — this never jumps more than one real step.
+ */
+export function nextWeightUp(w, step) {
+  const s = step > 0 ? step : DEFAULT_INC;
+  return Math.round(((Math.floor(w / s + 1e-9) + 1) * s) * 100) / 100;
+}
+
+/**
  * The working rep range for an exercise. New exercises store repMin/repMax.
  * Older plans only have a single `reps` target — derive a sensible window
  * from it (roughly 70%..100% of the old target) so they progress too.
@@ -195,8 +208,14 @@ export function recommendNext(lastSets, range, inc = DEFAULT_INC, targetSets = 1
     return { dir: 'first', weight: null,
       note: `First time — find a weight you can do for ${min}–${max} reps.` };
   }
-  const weights = lastSets.map((s) => N(s.weight)).filter((w) => w > 0);
-  const w = weights.length ? Math.max(...weights) : 0;
+  const weights = lastSets.map((s) => N(s.weight)).filter((x) => x > 0);
+  // Working weight = the heaviest load that actually produced reps IN the range
+  // (>= min). A too-heavy attempt that got dumped after a few reps (7 @ 80kg,
+  // then back to 60) must not become the weight to chase. If no set reached the
+  // range bottom at all, fall back to the heaviest weight used.
+  const inRange = lastSets.filter((s) => N(s.weight) > 0 && N(s.reps) >= min);
+  const w = inRange.length ? Math.max(...inRange.map((s) => N(s.weight)))
+    : weights.length ? Math.max(...weights) : 0;
   // sets done at the top working weight — warm-up sets at a lighter weight don't
   // count toward graduating (bodyweight: every set, since they're all weight 0).
   const topWorking = w > 0 ? lastSets.filter((s) => N(s.weight) === w) : lastSets;
@@ -205,7 +224,7 @@ export function recommendNext(lastSets, range, inc = DEFAULT_INC, targetSets = 1
   // the top weight — so a single logged set (or a partial session) won't bump.
   const hitTop = topWorking.length >= need && topWorking.every((s) => N(s.reps) >= max);
   if (hitTop && w > 0) {
-    const nw = roundToStep(w + inc, inc); // land on a real, loadable weight
+    const nw = nextWeightUp(w, inc); // next real, loadable weight above the current one
     return { dir: 'up', weight: nw,
       note: `Add weight: ${w} → ${nw}kg. Reset to ${min} reps and build back up.` };
   }
@@ -483,11 +502,11 @@ export function muscleFor(name) {
   const n = ' ' + String(name || '').toLowerCase() + ' ';
   const has = (...k) => k.some((x) => n.includes(x));
   if (has('treadmill', 'stairmaster', 'stair master', 'incline walk', 'run', 'running', 'jog', 'elliptical', 'cycle', 'cycling', 'bike', 'rower', 'rowing', 'cardio')) return 'Cardio';
-  if (has('plank', 'crunch', 'sit-up', 'situp', 'ab ', 'abs', 'leg raise', 'knee raise', 'russian twist', 'hollow', 'oblique')) return 'Core';
+  if (has('plank', 'crunch', 'sit-up', 'situp', 'ab ', 'abs', 'leg raise', 'knee raise', 'russian twist', 'hollow', 'oblique', 'woodchop')) return 'Core';
   if (has('upright row', 'overhead press', 'ohp', 'shoulder', 'lateral raise', 'military', 'arnold', 'rear delt', 'shrug')) return 'Shoulders';
   if (has('leg press', 'leg curl', 'leg extension', 'squat', 'lunge', 'calf', 'romanian', 'rdl', 'hip thrust', 'glute', 'hamstring', 'quad', 'step-up', 'step up')) return 'Legs';
   if (has('bench', 'chest', 'fly', 'flye', 'push-up', 'push up', 'pushup', 'dip', 'pec')) return 'Chest';
-  if (has('row', 'pull-up', 'pull up', 'pullup', 'pulldown', 'lat ', 'lat-', 'chin', 'face pull', 'deadlift', 'back extension')) return 'Back';
+  if (has('row', 'pull-up', 'pull up', 'pullup', 'pulldown', 'lat ', 'lat-', 'chin', 'face pull', 'deadlift', 'back extension', 'hyperextension')) return 'Back';
   if (has('curl', 'tricep', 'triceps', 'pushdown', 'bicep', 'biceps', 'skull', 'hammer', 'preacher', 'kickback', 'forearm')) return 'Arms';
   return 'Other';
 }

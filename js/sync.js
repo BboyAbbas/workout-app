@@ -35,10 +35,26 @@ export async function pull() {
     const r = await fetch(url(), { headers: headers() });
     if (!r.ok) return;
     const remote = await r.json();
-    if (remote && remote.updatedAt && remote.updatedAt > DB.getUpdatedAt()) {
-      DB.applyRemote(remote.data || {}, remote.updatedAt);
+    const localUpdated = DB.getUpdatedAt();
+    if (remote && remote.updatedAt && remote.updatedAt > localUpdated) {
+      const data = remote.data || {};
+      // Local work that never reached the cloud (a workout logged offline while
+      // another device / Claude updated the doc) must survive the pull: union any
+      // local session the remote copy lacks, then push the merged doc back up.
+      // A clean local copy applies remote as-is, so a session deleted on another
+      // device still stays deleted here.
+      const pushed = Number(localStorage.getItem(KEY_PUSHED)) || 0;
+      let mergedIn = 0;
+      if (localUpdated && localUpdated !== pushed && Array.isArray(data.sessions)) {
+        const have = new Set(data.sessions.map((s) => s && s.id));
+        const mine = DB.snapshot().sessions || [];
+        const missing = mine.filter((s) => s && s.id && !have.has(s.id));
+        if (missing.length) { data.sessions = data.sessions.concat(missing); mergedIn = missing.length; }
+      }
+      DB.applyRemote(data, remote.updatedAt);
       localStorage.setItem(KEY_PUSHED, String(remote.updatedAt)); // already matches cloud
       if (onApplied) onApplied();
+      if (mergedIn) { DB.markDirty(); push(); } // cloud lacks what we kept — send it up
     }
   } catch (_) { /* offline — stay on local, retry next focus/change */ }
   finally { pulling = false; }
