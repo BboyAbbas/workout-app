@@ -283,6 +283,9 @@ function check(cond, msg) {
   check((await tre.locator('[data-f=incline]').count()) >= 1
     && (await tre.locator('[data-f=speed]').count()) >= 1
     && (await tre.locator('[data-f=minutes]').count()) >= 1, 'treadmill finisher shows incline/speed/min inputs');
+  const tHints = await tre.locator('.hint-cols span').allTextContents();
+  check(JSON.stringify(tHints) === JSON.stringify(['#', 'Min', 'Incline', 'Speed']),
+    `treadmill columns ordered Min | Incline | Speed (got ${tHints.join(' | ')})`);
   const trow = tre.locator('.set-row').first();
   await trow.locator('[data-f=incline]').fill('12');
   await trow.locator('[data-f=speed]').fill('3');

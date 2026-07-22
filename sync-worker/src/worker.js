@@ -2,11 +2,20 @@
    STATE (KV, one JSON doc per user):
      GET  /state?id=<key>            -> { data, updatedAt }   (or {} if none yet)
      PUT  /state?id=<key>            body { data, updatedAt }  -> stores it
+   BACKUPS (daily snapshot, 60-day retention — recovery if the doc is wiped):
+     the first PUT of each day snapshots the PREVIOUS doc to backup:<id>:<date>
+     GET  /backups?id=<key>                  -> { backups: ['2026-07-23', ...] }
+     GET  /backup?id=<key>&date=<YYYY-MM-DD> -> the snapshot doc
+     POST /backup/restore?id=<key>  body { date } -> restore it as the live doc
+                                     (current doc saved to backup:<id>:pre-restore)
    PUSH (Web Push rest-done alert):
      POST /push/subscribe?id=<key>   body <PushSubscription>   -> store subscription
      POST /push/schedule?id=<key>    body { fireAt }           -> DO alarm at fireAt
      POST /push/cancel?id=<key>                                -> clear the DO alarm
    Token-gated (Bearer) + CORS-locked to the app origin. */
+
+const BACKUP_TTL = 60 * 86400; // keep daily snapshots 60 days
+const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
 
 const ALLOW_ORIGINS = [
   'https://bboyabbas.github.io',
@@ -156,10 +165,46 @@ export default {
         if (!body || typeof body !== 'object' || typeof body.updatedAt !== 'number') {
           return json({ error: 'bad payload' }, 400, h);
         }
+        // daily backup: before the FIRST write of each day, snapshot the doc as it
+        // was — a recovery point if the live doc is ever wiped or corrupted.
+        const prev = await env.WORKOUT_KV.get(key);
+        if (prev) {
+          const bkey = 'backup:' + id + ':' + dayKey(Date.now());
+          if (!(await env.WORKOUT_KV.get(bkey))) {
+            await env.WORKOUT_KV.put(bkey, prev, { expirationTtl: BACKUP_TTL });
+          }
+        }
         await env.WORKOUT_KV.put(key, JSON.stringify({ data: body.data || {}, updatedAt: body.updatedAt }));
         return json({ ok: true, updatedAt: body.updatedAt }, 200, h);
       }
       return json({ error: 'method not allowed' }, 405, h);
+    }
+
+    /* ---- backups: list / fetch / restore a daily snapshot ---- */
+    if (url.pathname === '/backups' && req.method === 'GET') {
+      const prefix = 'backup:' + id + ':';
+      const list = await env.WORKOUT_KV.list({ prefix });
+      return json({ backups: list.keys.map((k) => k.name.slice(prefix.length)) }, 200, h);
+    }
+    if (url.pathname === '/backup' && req.method === 'GET') {
+      const date = url.searchParams.get('date') || '';
+      const raw = await env.WORKOUT_KV.get('backup:' + id + ':' + date);
+      if (!raw) return json({ error: 'no backup for that date' }, 404, h);
+      return new Response(raw, { status: 200, headers: { ...h, 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname === '/backup/restore' && req.method === 'POST') {
+      let body = {}; try { body = await req.json(); } catch (_) {}
+      const date = String((body && body.date) || '');
+      const raw = await env.WORKOUT_KV.get('backup:' + id + ':' + date);
+      if (!raw) return json({ error: 'no backup for that date' }, 404, h);
+      let doc; try { doc = JSON.parse(raw); } catch (_) { return json({ error: 'corrupt backup' }, 500, h); }
+      // keep the current doc reachable so a mis-restore is itself reversible
+      const cur = await env.WORKOUT_KV.get('state:' + id);
+      if (cur) await env.WORKOUT_KV.put('backup:' + id + ':pre-restore', cur, { expirationTtl: BACKUP_TTL });
+      // fresh updatedAt so every device treats the restored copy as newest and pulls it
+      const restored = { data: (doc && doc.data) || {}, updatedAt: Date.now() };
+      await env.WORKOUT_KV.put('state:' + id, JSON.stringify(restored));
+      return json({ ok: true, restoredFrom: date, updatedAt: restored.updatedAt }, 200, h);
     }
 
     /* ---- push: store this device's subscription ---- */

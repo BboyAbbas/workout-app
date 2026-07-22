@@ -19,7 +19,24 @@ const headers = { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application
 
 const cmd = process.argv[2];
 
-if (cmd === 'get') {
+if (cmd === 'backups') {          // list daily snapshot dates
+  const r = await fetch(`${ENDPOINT.replace('/state', '/backups')}?id=${encodeURIComponent(ID)}`, { headers });
+  if (!r.ok) { console.error('backups failed:', r.status, await r.text()); process.exit(1); }
+  console.log(JSON.stringify(await r.json(), null, 2));
+} else if (cmd === 'backup') {    // print one snapshot: backup <YYYY-MM-DD>
+  const date = process.argv[3];
+  if (!date) { console.error('usage: backup <YYYY-MM-DD>'); process.exit(1); }
+  const r = await fetch(`${ENDPOINT.replace('/state', '/backup')}?id=${encodeURIComponent(ID)}&date=${date}`, { headers });
+  if (!r.ok) { console.error('backup failed:', r.status, await r.text()); process.exit(1); }
+  process.stdout.write(JSON.stringify(await r.json(), null, 2) + '\n');
+} else if (cmd === 'restore') {   // restore a snapshot as the live doc: restore <YYYY-MM-DD>
+  const date = process.argv[3];
+  if (!date) { console.error('usage: restore <YYYY-MM-DD>'); process.exit(1); }
+  const r = await fetch(`${ENDPOINT.replace('/state', '/backup/restore')}?id=${encodeURIComponent(ID)}`,
+    { method: 'POST', headers, body: JSON.stringify({ date }) });
+  if (!r.ok) { console.error('restore failed:', r.status, await r.text()); process.exit(1); }
+  console.log('restored; app pulls it on next open:', JSON.stringify(await r.json()));
+} else if (cmd === 'get') {
   const r = await fetch(url, { headers });
   if (!r.ok) { console.error('GET failed:', r.status, await r.text()); process.exit(1); }
   const doc = await r.json();
@@ -36,6 +53,6 @@ if (cmd === 'get') {
   if (!r.ok) { console.error('PUT failed:', r.status, await r.text()); process.exit(1); }
   console.log('uploaded; updatedAt =', payload.updatedAt, '(app will pull on next open)');
 } else {
-  console.error('usage: node tools/claude_sync.mjs get | put <file.json>');
+  console.error('usage: node tools/claude_sync.mjs get | put <file.json> | backups | backup <date> | restore <date>');
   process.exit(1);
 }

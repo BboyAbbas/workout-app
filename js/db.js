@@ -113,9 +113,9 @@ export const CARDIO_KINDS = {
   treadmill: {
     label: 'Treadmill',
     fields: [
+      { key: 'minutes', label: 'Min', ph: 'min' },
       { key: 'incline', label: 'Incline', ph: 'incl' },
       { key: 'speed', label: 'Speed', ph: 'speed' },
-      { key: 'minutes', label: 'Min', ph: 'min' },
     ],
   },
   stairmaster: {
