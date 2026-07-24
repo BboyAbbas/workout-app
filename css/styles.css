@@ -385,6 +385,11 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .wt-stats { display: flex; text-align: center; margin-top: 12px; }
 .wt-stats > div { flex: 1; }
 .wt-stats .stat-v { font-size: 22px; }
+.wt-kg-wrap { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin-bottom: 14px; }
+.wt-kg-input { width: 150px; font-size: 30px; font-weight: 700; text-align: center; padding: 10px 8px; }
+.wt-kg-input::-webkit-outer-spin-button, .wt-kg-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wt-kg-wrap .u { font-size: 15px; color: var(--muted); font-weight: 600; }
+.wt-when-input { width: 140px; font-size: 12px; padding: 12px 6px; color: var(--muted); }
 .wt-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); }
 .wt-row:first-child { border-top: 0; padding-top: 2px; }
 .wt-row:last-child { padding-bottom: 2px; }

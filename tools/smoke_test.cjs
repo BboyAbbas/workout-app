@@ -348,9 +348,14 @@ function check(cond, msg) {
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
 
-  // Finish moved out of the top bar to a full-width button at the bottom
+  // Finish lives at the bottom of the screen: primary action on the RIGHT,
+  // destructive Discard on the LEFT of the same row (never in the top timer bar)
   check((await page.locator('.timer-bar #finish').count()) === 0, 'Finish is NOT in the top timer bar');
-  check((await page.locator('main #finish.btn-block').count()) === 1, 'Finish is a full-width button at the bottom');
+  check((await page.locator('main #finish').count()) === 1, 'Finish is a button at the bottom');
+  const finBox = await page.locator('#finish').boundingBox();
+  const disBox = await page.locator('#discard').boundingBox();
+  check(disBox && finBox && disBox.x < finBox.x && finBox.width > disBox.width,
+    'Discard sits left of Finish, Finish is the big one');
 
   // per-exercise rest stepper shown + saved back to the plan as the new default
   const card0 = page.locator('.run-ex').nth(0);              // Bench Press (rest 180)
@@ -628,6 +633,18 @@ function check(cond, msg) {
   // first weigh-in
   await page.locator('#wt-add').click();
   await page.waitForSelector('#wt-kg');
+  // editor layout: big central weight, note + when share a row, cancel LEFT / save RIGHT
+  {
+    const kg = await page.locator('#wt-kg').boundingBox();
+    const note = await page.locator('#wt-note').boundingBox();
+    const when = await page.locator('#wt-when').boundingBox();
+    const cancel = await page.locator('#wt-cancel').boundingBox();
+    const save = await page.locator('#wt-save').boundingBox();
+    check(Math.abs(note.y - when.y) < 30 && note.x < when.x, 'note and when share one row (when on the right, minimal)');
+    check(note.width > when.width, 'when is the small one, note gets the room');
+    check(cancel.x < save.x && save.width > cancel.width, 'cancel left, big save right');
+    check(kg.height > note.height, 'weight is the big central field');
+  }
   await page.locator('#wt-kg').fill('74.5');
   await page.locator('#wt-save').click();
   await page.waitForSelector('.wt-row');

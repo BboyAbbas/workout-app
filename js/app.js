@@ -385,9 +385,12 @@ function screenEditor(id) {
         <button class="btn btn-block" id="add-ex">${icons.plus} Add exercise</button>
 
         <div class="spacer"></div><div class="spacer"></div>
-        <button class="btn btn-primary btn-block" id="save">${icons.check} Save plan</button>
-        <div class="spacer"></div>
-        ${!isNew ? `<button class="btn btn-danger btn-block" id="del">${icons.trash} Delete plan</button>` : ''}
+        ${isNew
+          ? `<button class="btn btn-primary btn-block" id="save">${icons.check} Save plan</button>`
+          : `<div style="display:flex;gap:8px">
+              <button class="btn btn-danger" id="del">${icons.trash} Delete</button>
+              <button class="btn btn-primary" id="save" style="flex:1">${icons.check} Save plan</button>
+            </div>`}
         <div class="spacer"></div>
       </main>
     `);
@@ -731,9 +734,10 @@ function screenRun(planId) {
             style="width:100%;resize:vertical;min-height:64px;font:inherit">${esc(active.notes || '')}</textarea>
         </div>
         <div class="spacer"></div>
-        <button class="btn btn-primary btn-block" id="finish">${icons.check} Finish workout</button>
-        <div class="spacer"></div>
-        <button class="btn btn-danger btn-block" id="discard">Discard workout</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-danger" id="discard">Discard</button>
+          <button class="btn btn-primary" id="finish" style="flex:1">${icons.check} Finish workout</button>
+        </div>
       </main>
       <footer class="run-foot">
         <div id="rest-host"></div>
@@ -1329,18 +1333,19 @@ function screenWeight() {
   const editing = weightEditing && weightEditing !== 'new' ? all.find((e) => e.id === weightEditing) : null;
   const editorCard = weightEditing ? `
       <div class="card" id="wt-editor">
-        <div class="num-grid" style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px">
-          <div class="field"><label>Weight (kg)</label>
-            <input class="input" id="wt-kg" type="number" step="0.1" min="20" max="300" inputmode="decimal" value="${editing ? editing.kg : (latest ? latest.kg : '')}"></div>
-          <div class="field"><label>When</label>
-            <input class="input" id="wt-when" type="datetime-local" value="${toLocalInput(editing ? editing.t : now)}"></div>
+        <div class="wt-kg-wrap">
+          <input class="input wt-kg-input" id="wt-kg" type="number" step="0.1" min="20" max="300" inputmode="decimal" placeholder="0.0" value="${editing ? editing.kg : (latest ? latest.kg : '')}"><span class="u">kg</span>
         </div>
-        <div class="field" style="margin-bottom:0"><label>Note</label>
-          <input class="input" id="wt-note" type="text" placeholder="optional" value="${editing ? esc(editing.note || '') : ''}"></div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div class="field" style="flex:1;margin-bottom:0"><label>Note</label>
+            <input class="input" id="wt-note" type="text" placeholder="optional" value="${editing ? esc(editing.note || '') : ''}"></div>
+          <div class="field" style="margin-bottom:0"><label>When</label>
+            <input class="input wt-when-input" id="wt-when" type="datetime-local" value="${toLocalInput(editing ? editing.t : now)}"></div>
+        </div>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn-primary" id="wt-save" style="flex:1">${icons.check} Save</button>
-          ${editing ? `<button class="btn" id="wt-del" aria-label="Delete">${icons.trash}</button>` : ''}
           <button class="btn" id="wt-cancel">Cancel</button>
+          ${editing ? `<button class="btn btn-danger" id="wt-del" aria-label="Delete">${icons.trash}</button>` : ''}
+          <button class="btn btn-primary" id="wt-save" style="flex:1.4">${icons.check} Save</button>
         </div>
       </div>` : '';
 
