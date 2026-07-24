@@ -651,7 +651,7 @@ function check(cond, msg) {
   await page.locator('.wchart').click();
   await page.waitForSelector('.wt-callout');
   const callout = ((await page.locator('.wt-callout').textContent()) || '').replace(/\s+/g, ' ');
-  check(/\d+(\.\d+)? kg/.test(callout), `chart tap shows node details (${callout.trim()})`);
+  check(/\d+(\.\d+)?kg/.test(callout), `chart tap shows node details (${callout.trim()})`);
   await page.locator('.wchart').click();
   await page.waitForTimeout(200);
   check((await page.locator('.wt-callout').count()) === 0, 'tapping the same node again hides the callout');

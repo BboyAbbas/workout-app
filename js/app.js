@@ -1272,18 +1272,15 @@ function weightChart(entries, targetKg, selectedId) {
       <line x1="${padL}" y1="${Y(targetKg)}" x2="${w - padR}" y2="${Y(targetKg)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
       <text x="${w - padR + 5}" y="${Y(targetKg) + 3.5}" font-size="10" fill="var(--accent)">${targetKg}</text>` : '';
 
-  // callout for the tapped node
+  // callout for the tapped node — aktiBMI-style: date + weight, nothing else
   let callout = '';
   const sel = selectedId ? entries.find((e) => e.id === selectedId) : null;
   if (sel) {
     const cx = X(sel.t), cy = Y(sel.kg);
-    const idx = entries.indexOf(sel);
-    const d = idx > 0 ? sel.kg - entries[idx - 1].kg : null;
-    const dateTxt = `${fmtDate(sel.t)} · ${fmtTime(sel.t)}`;
-    const kgTxt = `${fmtKg(sel.kg)} kg${d == null ? '' : `  (${fmtDelta(d)})`}`;
-    const noteTxt = (sel.note || '').replace(/\s+/g, ' ').slice(0, 36);
-    const bw = Math.max(dateTxt.length * 5.2, kgTxt.length * 6.4, noteTxt.length * 4.8) + 18;
-    const bh = noteTxt ? 47 : 35;
+    const dateTxt = new Date(sel.t).toLocaleDateString(undefined, { day: 'numeric', month: 'numeric', year: '2-digit' });
+    const kgTxt = `${fmtKg(sel.kg)}kg`;
+    const bw = Math.max(dateTxt.length * 5.4, kgTxt.length * 7.4) + 18;
+    const bh = 37;
     const bx = Math.min(Math.max(cx - bw / 2, 2), w - padR - bw + 26);
     const above = cy > bh + 16;
     const by = above ? cy - bh - 11 : cy + 11;
@@ -1291,9 +1288,8 @@ function weightChart(entries, targetKg, selectedId) {
       <g class="wt-callout" pointer-events="none">
         <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
         <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(0)}" height="${bh}" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
-        <text x="${(bx + 9).toFixed(1)}" y="${by + 14}" font-size="9.5" fill="var(--muted)">${esc(dateTxt)}</text>
-        <text x="${(bx + 9).toFixed(1)}" y="${by + 27.5}" font-size="11.5" font-weight="700" fill="var(--text)">${esc(kgTxt)}</text>
-        ${noteTxt ? `<text x="${(bx + 9).toFixed(1)}" y="${by + 40}" font-size="9" fill="var(--muted)">${esc(noteTxt)}</text>` : ''}
+        <text x="${(bx + bw / 2).toFixed(1)}" y="${by + 14}" font-size="9.5" fill="var(--muted)" text-anchor="middle">${esc(dateTxt)}</text>
+        <text x="${(bx + bw / 2).toFixed(1)}" y="${by + 29}" font-size="12.5" font-weight="700" fill="var(--accent)" text-anchor="middle">${esc(kgTxt)}</text>
       </g>`;
   }
   return `
@@ -1376,7 +1372,7 @@ function screenWeight() {
         <div class="wt-stats">
           <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.kg) : '–'}<span class="u">kg</span></div></div>
           <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.kg) : '–'}<span class="u">kg</span></div></div>
-          <div><div class="stat-l">Development</div><div class="stat-v wt-delta ${deltaClass(dev)}" style="font-weight:750">${fmtDelta(dev)}<span class="u">kg</span></div></div>
+          <div><div class="stat-l">Development</div><div class="stat-v" style="color:${Math.round(dev * 10) === 0 ? 'var(--muted)' : dev > 0 ? 'var(--danger)' : 'var(--accent)'}">${fmtDelta(dev)}<span class="u">kg</span></div></div>
         </div>
       </div>
 
