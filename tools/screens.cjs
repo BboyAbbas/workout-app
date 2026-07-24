@@ -12,6 +12,8 @@ const fs = require('fs');
   })).newPage();
   await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  // accept the app's confirms (e.g. finish-without-cardio nudge) like smoke_test does
+  page.on('dialog', (d) => d.accept());
 
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());

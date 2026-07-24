@@ -48,6 +48,9 @@ function check(cond, msg) {
   check((await page.locator('[data-tpl]').count()) === 0, 'no "add from template" section');
   const firstName = (await page.locator('.plan-card .name').first().textContent()) || '';
   check(firstName.includes('Push'), `first plan is Push (${firstName.trim()})`);
+  // up-next highlight: nothing trained yet -> the first plan is marked
+  check((await page.locator('.plan-card.plan-next').count()) === 1, 'exactly one plan marked up-next');
+  check((await page.locator('.plan-card').first().locator('.next-chip').count()) === 1, 'fresh state: first plan (Push) is up next');
 
   console.log('\n[2] Open a plan');
   await page.locator('.plan-card').first().click();      // Push
@@ -95,6 +98,10 @@ function check(cond, msg) {
   console.log('\n[7] Last-time memory on second run');
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
+  // up-next rotation: Push was just trained -> the SECOND plan is marked now
+  check((await page.locator('.plan-card.plan-next').count()) === 1, 'still exactly one up-next card');
+  check((await page.locator('.plan-card').nth(1).locator('.next-chip').count()) === 1, 'after training Push, next plan in the program is up next');
+  check((await page.locator('.plan-card').first().locator('.next-chip').count()) === 0, 'Push no longer marked up next');
   await page.locator('.plan-card').first().click();
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();

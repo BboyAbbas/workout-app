@@ -159,15 +159,17 @@ function screenHome() {
       <button class="btn btn-block" data-nav="#/plan/new">${icons.plus} Create your own</button>
     `;
   } else {
+    const nextId = plans.length > 1 ? DB.nextPlanId() : null;
     body = plans.map((p) => {
       const last = DB.getSessionsForPlan(p.id)[0];
+      const isNext = p.id === nextId;
       const desc = last
         ? `${p.exercises.length} exercises · last ${fmtDate(last.startedAt).toLowerCase()}`
         : `${p.exercises.length} exercises`;
       return `
-        <div class="card plan-card tappable" data-plan="${p.id}">
+        <div class="card plan-card tappable${isNext ? ' plan-next' : ''}" data-plan="${p.id}">
           <div class="meta">
-            <p class="name">${esc(p.name || 'Untitled')}</p>
+            <p class="name">${esc(p.name || 'Untitled')}${isNext ? '<span class="chip chip-up next-chip">Up next</span>' : ''}</p>
             <p class="desc">${esc(desc)}</p>
           </div>
           <button class="icon-btn btn-primary" style="border-radius:12px" data-run="${p.id}" aria-label="Start">${icons.play}</button>

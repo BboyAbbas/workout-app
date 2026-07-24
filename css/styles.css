@@ -101,6 +101,12 @@ input, select { font-family: inherit; }
 .plan-card .name { font-size: 17px; font-weight: 620; margin: 0 0 3px; }
 .plan-card .desc { font-size: 13px; color: var(--muted); margin: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the plan due next in the program rotation — pops off the list */
+.plan-card.plan-next {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 4px 18px rgba(52, 211, 153, 0.18);
+}
+.next-chip { margin-left: 8px; }
 
 /* ---------- Buttons ---------- */
 .btn {

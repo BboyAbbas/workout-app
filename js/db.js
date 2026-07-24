@@ -248,6 +248,16 @@ export function getSessions() {
 export function getSessionsForPlan(planId) {
   return getSessions().filter((s) => s.planId === planId);
 }
+/** The plan that's up next: the one after the most recently trained plan in
+ *  list order (wraps around). No history yet -> the first plan. */
+export function nextPlanId() {
+  const plans = getPlans();
+  if (!plans.length) return null;
+  const last = getSessions().find((s) => plans.some((p) => p.id === s.planId));
+  if (!last) return plans[0].id;
+  const i = plans.findIndex((p) => p.id === last.planId);
+  return plans[(i + 1) % plans.length].id;
+}
 export function addSession(session) {
   const sessions = read(KEY_SESSIONS, []);
   sessions.push(session);
