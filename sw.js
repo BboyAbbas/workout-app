@@ -2,7 +2,7 @@
    Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
    (no more stale-cache surprises while iterating). Offline -> fall back to the
    cached copy. Bump CACHE on release to drop the old precache. */
-const CACHE = 'workout-v43';
+const CACHE = 'workout-v44';
 const SHELL = [
   './',
   'index.html',
@@ -40,7 +40,10 @@ self.addEventListener('activate', (e) => {
 
 async function networkFirst(req) {
   try {
-    const res = await fetch(req);
+    // no-cache: revalidate at the server instead of trusting the HTTP cache —
+    // GitHub Pages serves max-age=600, and a 10-min-stale js file after a
+    // release means mixed-version modules (bit us 2026-07-25)
+    const res = await fetch(req, { cache: 'no-cache' });
     // refresh the cache copy for offline use
     const copy = res.clone();
     caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
