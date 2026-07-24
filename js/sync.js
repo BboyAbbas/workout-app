@@ -36,7 +36,10 @@ export async function pull() {
   if (pulling) return 'busy';
   pulling = true;
   try {
-    const r = await fetch(url(), { headers: headers() });
+    // 10s timeout: a fetch that never settles (seen live right after a service
+    // worker update) would otherwise leave `pulling` stuck true, so every later
+    // focus-pull returns 'busy' and the tab never syncs until a manual reload.
+    const r = await fetch(url(), { headers: headers(), signal: AbortSignal.timeout(10000) });
     if (!r.ok) return 'error';
     const remote = await r.json();
     const localUpdated = DB.getUpdatedAt();
@@ -91,6 +94,7 @@ export async function push() {
     const r = await fetch(url(), {
       method: 'PUT', headers: headers(),
       body: JSON.stringify({ data: DB.snapshot(), updatedAt }),
+      signal: AbortSignal.timeout(10000),
     });
     if (r.ok) localStorage.setItem(KEY_PUSHED, String(updatedAt));
   } catch (_) { /* offline — will retry on next change */ }
@@ -113,7 +117,18 @@ export function initSync(onRemoteApplied) {
   });
   // flush a pending push before the app is hidden/closed
   window.addEventListener('pagehide', push);
-  const initial = pull();   // pull newest on startup
+  // Pull newest on startup. The first pull of a visit is fragile: a just-updated
+  // service worker claims the page and self-reloads, aborting it, and the retry
+  // can hang until the fetch timeout. Retry a failed/busy first pull a few times
+  // so the screen fills without the user having to reload.
+  const initial = pull();
+  let tries = 0;
+  const ensureFirstPull = (st) => {
+    if ((st === 'error' || st === 'busy') && tries++ < 3) {
+      setTimeout(() => pull().then(ensureFirstPull), 6000);
+    }
+  };
+  initial.then(ensureFirstPull);
   schedulePush();           // and push anything local that isn't in the cloud yet
   return initial;
 }
