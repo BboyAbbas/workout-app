@@ -71,6 +71,31 @@ export function applyRemote(data, ts) {
   localStorage.setItem(KEY_UPDATED, String(ts));
 }
 
+/* An app update can teach this version a field an OLDER version had parked in
+   KEY_EXTRA (applyRemote preserves unknown cloud fields verbatim). Adopt those
+   into their real stores on boot — without this the data stays invisible until
+   the cloud doc's updatedAt moves again, because a pull at the same timestamp
+   is treated as already applied (bit us 2026-07-25: 226 weight entries pulled
+   by the previous app version sat parked while the weight screen showed empty). */
+const FIELD_STORES = { plans: KEY_PLANS, sessions: KEY_SESSIONS, goal: KEY_GOAL, weights: KEY_WEIGHTS };
+(function adoptParkedFields() {
+  try {
+    const extra = read(KEY_EXTRA, null);
+    if (!extra || typeof extra !== 'object') return;
+    let changed = false;
+    for (const f of KNOWN_SYNC_FIELDS) {
+      if (!(f in extra)) continue;
+      // adopt only into an empty store — never clobber newer local data
+      if (extra[f] != null && localStorage.getItem(FIELD_STORES[f]) == null) {
+        localStorage.setItem(FIELD_STORES[f], JSON.stringify(extra[f]));
+      }
+      delete extra[f];
+      changed = true;
+    }
+    if (changed) localStorage.setItem(KEY_EXTRA, JSON.stringify(extra));
+  } catch (_) {}
+})();
+
 /* ---------- weight-loss goal (home-screen countdown) ---------- */
 export function getGoal() { return read(KEY_GOAL, null); }
 export function setGoal(goal) {

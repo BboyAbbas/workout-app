@@ -668,6 +668,22 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.waitForSelector('#weight-bar');
   check(((await page.locator('#weight-bar').textContent()) || '').includes('74.5'), 'home weight card shows current weight');
+  // adoption: a field parked in wt_remote_extra_v1 by an OLDER app version
+  // (which didn't know 'weights') must be adopted into the real store on boot
+  await page.evaluate(() => {
+    localStorage.removeItem('wt_weights_v1');
+    localStorage.setItem('wt_remote_extra_v1',
+      JSON.stringify({ weights: { entries: [{ id: 'adopt1', t: Date.now(), kg: 70.5, note: 'parked' }], targetKg: 64, heightCm: 169 }, future: { x: 1 } }));
+  });
+  await page.reload();
+  await page.waitForSelector('#weight-bar');
+  const adopted = await page.evaluate(() => ({
+    w: (JSON.parse(localStorage.getItem('wt_weights_v1') || 'null') || { entries: [] }).entries.length,
+    extra: JSON.parse(localStorage.getItem('wt_remote_extra_v1') || '{}'),
+  }));
+  check(adopted.w === 1, 'parked weights adopted into the real store on boot');
+  check(!('weights' in adopted.extra) && adopted.extra.future, 'adopted field removed from extra, unknown fields kept');
+  check(((await page.locator('#weight-bar').textContent()) || '').includes('70.5'), 'adopted weigh-in visible on the home card');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
