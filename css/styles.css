@@ -399,3 +399,4 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .wt-delta.zero { color: var(--muted); }
 .mbar-fill.gain { background: var(--danger); }
 .mbar-fill.zero { background: var(--muted); }
+.wchart { cursor: pointer; }

@@ -647,6 +647,14 @@ function check(cond, msg) {
   check((await page.locator('.mbar').count()) === 4, 'performance bars render (1w/4w/3m/all)');
   const wtStats = ((await page.locator('.wt-stats').textContent()) || '').replace(/\s+/g, ' ');
   check(wtStats.includes('74.5') && wtStats.includes('-0.5'), `start/now/development stats (${wtStats.trim()})`);
+  // tap the chart -> nearest node gets a details callout; tap again -> hides
+  await page.locator('.wchart').click();
+  await page.waitForSelector('.wt-callout');
+  const callout = ((await page.locator('.wt-callout').textContent()) || '').replace(/\s+/g, ' ');
+  check(/\d+(\.\d+)? kg/.test(callout), `chart tap shows node details (${callout.trim()})`);
+  await page.locator('.wchart').click();
+  await page.waitForTimeout(200);
+  check((await page.locator('.wt-callout').count()) === 0, 'tapping the same node again hides the callout');
   // edit the newest entry
   await page.locator('.wt-row').first().click();
   await page.waitForSelector('#wt-del');

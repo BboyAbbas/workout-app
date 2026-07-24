@@ -1201,6 +1201,7 @@ function screenExercise(name) {
    ============================================================ */
 let weightRange = 'all';      // selected chart range, survives re-renders
 let weightEditing = null;     // null | 'new' | entry id being edited
+let weightSel = null;         // entry id highlighted on the chart (tap a node)
 
 const WEIGHT_RANGES = [
   { key: '30', label: '30 Days', days: 30 },
@@ -1224,8 +1225,10 @@ function toLocalInput(t) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/* Line chart with y-gridlines, x time labels and a dashed target line. */
-function weightChart(entries, targetKg) {
+/* Line chart with y-gridlines, x time labels and a dashed target line.
+   Tapping the chart selects the nearest weigh-in (selectedId) and shows an
+   aktiBMI-style callout with date, weight, delta and note. */
+function weightChart(entries, targetKg, selectedId) {
   if (entries.length < 2) return `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">Log two weigh-ins and the chart appears.</p>`;
   const w = 340, h = 190, padL = 10, padR = 34, padT = 12, padB = 22;
   const t0 = entries[0].t, t1 = entries[entries.length - 1].t;
@@ -1258,19 +1261,49 @@ function weightChart(entries, targetKg) {
     xlabels += `<text x="${X(t).toFixed(1)}" y="${h - 6}" font-size="10" fill="var(--muted)" text-anchor="${i === 0 ? 'start' : i === 3 ? 'end' : 'middle'}">${fmtX(t)}</text>`;
   }
   const pts = entries.map((e) => `${X(e.t).toFixed(1)},${Y(e.kg).toFixed(1)}`);
-  const dots = entries.length <= 60
-    ? entries.map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.kg).toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('')
-    : '';
+  // nodes on every range: thin dense ranges so dots stay readable, but a tap
+  // still hits ANY entry (nearest-by-time lookup in the click handler)
+  const thin = Math.max(1, Math.ceil(entries.length / 120));
+  const dots = entries
+    .filter((e, i) => i % thin === 0 || i === entries.length - 1 || e.id === selectedId)
+    .map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.kg).toFixed(1)}" r="${thin > 1 ? 2 : 2.6}" fill="var(--accent)"/>`).join('');
   const [lx, ly] = pts[pts.length - 1].split(',');
   const target = targetKg != null ? `
       <line x1="${padL}" y1="${Y(targetKg)}" x2="${w - padR}" y2="${Y(targetKg)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
       <text x="${w - padR + 5}" y="${Y(targetKg) + 3.5}" font-size="10" fill="var(--accent)">${targetKg}</text>` : '';
+
+  // callout for the tapped node
+  let callout = '';
+  const sel = selectedId ? entries.find((e) => e.id === selectedId) : null;
+  if (sel) {
+    const cx = X(sel.t), cy = Y(sel.kg);
+    const idx = entries.indexOf(sel);
+    const d = idx > 0 ? sel.kg - entries[idx - 1].kg : null;
+    const dateTxt = `${fmtDate(sel.t)} · ${fmtTime(sel.t)}`;
+    const kgTxt = `${fmtKg(sel.kg)} kg${d == null ? '' : `  (${fmtDelta(d)})`}`;
+    const noteTxt = (sel.note || '').replace(/\s+/g, ' ').slice(0, 36);
+    const bw = Math.max(dateTxt.length * 5.2, kgTxt.length * 6.4, noteTxt.length * 4.8) + 18;
+    const bh = noteTxt ? 47 : 35;
+    const bx = Math.min(Math.max(cx - bw / 2, 2), w - padR - bw + 26);
+    const above = cy > bh + 16;
+    const by = above ? cy - bh - 11 : cy + 11;
+    callout = `
+      <g class="wt-callout" pointer-events="none">
+        <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
+        <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(0)}" height="${bh}" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+        <text x="${(bx + 9).toFixed(1)}" y="${by + 14}" font-size="9.5" fill="var(--muted)">${esc(dateTxt)}</text>
+        <text x="${(bx + 9).toFixed(1)}" y="${by + 27.5}" font-size="11.5" font-weight="700" fill="var(--text)">${esc(kgTxt)}</text>
+        ${noteTxt ? `<text x="${(bx + 9).toFixed(1)}" y="${by + 40}" font-size="9" fill="var(--muted)">${esc(noteTxt)}</text>` : ''}
+      </g>`;
+  }
   return `
-    <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="weight chart">
+    <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="weight chart"
+         data-t0="${t0}" data-span="${span}" data-w="${w}" data-padl="${padL}" data-padr="${padR}">
       ${grid}${ylabels}${xlabels}${target}
       <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
       ${dots}
       <circle cx="${lx}" cy="${ly}" r="3.5" fill="var(--accent)"/>
+      ${callout}
     </svg>`;
 }
 
@@ -1339,7 +1372,7 @@ function screenWeight() {
       <div class="card">
         <div class="range-tabs">${WEIGHT_RANGES.map((r) =>
           `<button class="chip-tab${r.key === weightRange ? ' on' : ''}" data-range="${r.key}">${r.label}</button>`).join('')}</div>
-        ${weightChart(inRange, wts.targetKg)}
+        ${weightChart(inRange, wts.targetKg, weightSel)}
         <div class="wt-stats">
           <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.kg) : '–'}<span class="u">kg</span></div></div>
           <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.kg) : '–'}<span class="u">kg</span></div></div>
@@ -1368,7 +1401,20 @@ function screenWeight() {
     <button class="fab" id="wt-add">${icons.plus}<span>Log</span></button>
   `);
 
-  qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; screenWeight(); }));
+  qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; weightSel = null; screenWeight(); }));
+  const chartEl = qs('.wchart');
+  if (chartEl) chartEl.addEventListener('click', (ev) => {
+    // map the tap x back to a time, pick the nearest weigh-in, toggle its callout
+    const rect = chartEl.getBoundingClientRect();
+    const vx = ((ev.clientX - rect.left) / rect.width) * (+chartEl.dataset.w);
+    const padL = +chartEl.dataset.padl, padR = +chartEl.dataset.padr;
+    const t = +chartEl.dataset.t0 + ((vx - padL) / ((+chartEl.dataset.w) - padL - padR)) * (+chartEl.dataset.span);
+    let best = null, bd = Infinity;
+    for (const e of inRange) { const d = Math.abs(e.t - t); if (d < bd) { bd = d; best = e; } }
+    if (!best) return;
+    weightSel = weightSel === best.id ? null : best.id;
+    screenWeight();
+  });
   qs('#wt-add').addEventListener('click', () => { weightEditing = 'new'; screenWeight(); });
   qsa('[data-wid]').forEach((r) => r.addEventListener('click', () => { weightEditing = r.dataset.wid; screenWeight(); window.scrollTo(0, 0); }));
   qs('#wt-target-btn').addEventListener('click', () => {
