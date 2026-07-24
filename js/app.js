@@ -203,6 +203,33 @@ function screenHome() {
     </div>`;
   }
 
+  // body-weight card: current kg + week trend, taps through to the weight screen
+  const wts = DB.getWeights();
+  const wLast = wts.entries[wts.entries.length - 1];
+  let weightBar;
+  if (wLast) {
+    const wkAgo = DB.weightAt(wts.entries, Date.now() - 7 * 86400000);
+    const wd = wkAgo == null ? 0 : wLast.kg - wkAgo;
+    const trend = Math.round(wd * 10) === 0 ? 'steady this week' : `${fmtDelta(wd)} kg this week`;
+    weightBar = `
+    <div class="card tappable" id="weight-bar" data-nav="#/weight" style="display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <p class="name" style="margin:0 0 2px;font-weight:650">⚖️ Weight · ${fmtKg(wLast.kg)} kg</p>
+        <p class="desc" style="margin:0;color:var(--muted)">${trend} · last ${esc(fmtDate(wLast.t).toLowerCase())}</p>
+      </div>
+      <div style="color:var(--muted)">${icons.chart}</div>
+    </div>`;
+  } else {
+    weightBar = `
+    <div class="card tappable" id="weight-bar" data-nav="#/weight" style="display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <p class="name" style="margin:0 0 2px;font-weight:650">⚖️ Weight</p>
+        <p class="desc" style="margin:0;color:var(--muted)">Track your body weight</p>
+      </div>
+      <div style="color:var(--muted)">${icons.chart}</div>
+    </div>`;
+  }
+
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -214,6 +241,7 @@ function screenHome() {
     <main class="screen">
       ${resumeBar}
       ${goalBar}
+      ${weightBar}
       ${body}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
@@ -1169,6 +1197,214 @@ function screenExercise(name) {
 }
 
 /* ============================================================
+   SCREEN: Weight — body-weight log, chart, performance
+   ============================================================ */
+let weightRange = 'all';      // selected chart range, survives re-renders
+let weightEditing = null;     // null | 'new' | entry id being edited
+
+const WEIGHT_RANGES = [
+  { key: '30', label: '30 Days', days: 30 },
+  { key: '60', label: '60 Days', days: 60 },
+  { key: '90', label: '90 Days', days: 90 },
+  { key: 'year', label: 'Year', days: 365 },
+  { key: 'all', label: 'All', days: null },
+];
+
+function fmtKg(v) { return String(Math.round(v * 10) / 10); }
+function fmtDelta(v) {
+  const r = Math.round(v * 10) / 10;
+  return r === 0 ? '±0' : (r > 0 ? '+' : '-') + Math.abs(r);
+}
+function deltaClass(v) {
+  const r = Math.round(v * 10) / 10;
+  return r === 0 ? 'zero' : r > 0 ? 'gain' : 'loss';
+}
+function toLocalInput(t) {
+  const d = new Date(t), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* Line chart with y-gridlines, x time labels and a dashed target line. */
+function weightChart(entries, targetKg) {
+  if (entries.length < 2) return `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">Log two weigh-ins and the chart appears.</p>`;
+  const w = 340, h = 190, padL = 10, padR = 34, padT = 12, padB = 22;
+  const t0 = entries[0].t, t1 = entries[entries.length - 1].t;
+  const span = Math.max(1, t1 - t0);
+  let min = Math.min(...entries.map((e) => e.kg));
+  let max = Math.max(...entries.map((e) => e.kg));
+  if (targetKg != null) { min = Math.min(min, targetKg); max = Math.max(max, targetKg); }
+  min = Math.floor(min - 0.5); max = Math.ceil(max + 0.5);
+  const yspan = max - min || 1;
+  const X = (t) => padL + ((t - t0) / span) * (w - padL - padR);
+  const Y = (v) => padT + (1 - (v - min) / yspan) * (h - padT - padB);
+
+  const step = Math.ceil(yspan / 6);
+  let grid = '', ylabels = '';
+  for (let v = min; v <= max; v += step) {
+    if (targetKg != null && Math.abs(v - targetKg) < step / 2) continue; // target label owns that row
+    grid += `<line x1="${padL}" y1="${Y(v)}" x2="${w - padR}" y2="${Y(v)}" stroke="var(--border)" stroke-width="1"/>`;
+    ylabels += `<text x="${w - padR + 5}" y="${Y(v) + 3.5}" font-size="10" fill="var(--muted)">${v}</text>`;
+  }
+  const spanDays = span / 86400000;
+  const fmtX = (t) => {
+    const d = new Date(t);
+    if (spanDays > 700) return String(d.getFullYear());
+    if (spanDays > 60) return d.toLocaleDateString(undefined, { month: 'short' });
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+  let xlabels = '';
+  for (let i = 0; i <= 3; i++) {
+    const t = t0 + (span * i) / 3;
+    xlabels += `<text x="${X(t).toFixed(1)}" y="${h - 6}" font-size="10" fill="var(--muted)" text-anchor="${i === 0 ? 'start' : i === 3 ? 'end' : 'middle'}">${fmtX(t)}</text>`;
+  }
+  const pts = entries.map((e) => `${X(e.t).toFixed(1)},${Y(e.kg).toFixed(1)}`);
+  const dots = entries.length <= 60
+    ? entries.map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.kg).toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('')
+    : '';
+  const [lx, ly] = pts[pts.length - 1].split(',');
+  const target = targetKg != null ? `
+      <line x1="${padL}" y1="${Y(targetKg)}" x2="${w - padR}" y2="${Y(targetKg)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
+      <text x="${w - padR + 5}" y="${Y(targetKg) + 3.5}" font-size="10" fill="var(--accent)">${targetKg}</text>` : '';
+  return `
+    <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="weight chart">
+      ${grid}${ylabels}${xlabels}${target}
+      <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
+      ${dots}
+      <circle cx="${lx}" cy="${ly}" r="3.5" fill="var(--accent)"/>
+    </svg>`;
+}
+
+function screenWeight() {
+  const wts = DB.getWeights();
+  const all = wts.entries;
+  const now = Date.now();
+  const range = WEIGHT_RANGES.find((r) => r.key === weightRange) || WEIGHT_RANGES[4];
+  const inRange = range.days ? all.filter((e) => e.t >= now - range.days * 86400000) : all;
+  const latest = all.length ? all[all.length - 1] : null;
+
+  // performance vs the interpolated weight at each cutoff
+  const perf = latest ? [
+    { label: '1 Week', days: 7 },
+    { label: '4 Weeks', days: 28 },
+    { label: '3 Months', days: 90 },
+    { label: 'All', days: null },
+  ].map((p) => {
+    const base = p.days ? DB.weightAt(all, now - p.days * 86400000) : all[0].kg;
+    return { ...p, delta: base == null ? 0 : latest.kg - base };
+  }) : [];
+  const maxAbs = Math.max(0.1, ...perf.map((p) => Math.abs(p.delta)));
+
+  const start = inRange.length ? inRange[0] : null;
+  const dev = start && latest ? latest.kg - start.kg : 0;
+
+  const editing = weightEditing && weightEditing !== 'new' ? all.find((e) => e.id === weightEditing) : null;
+  const editorCard = weightEditing ? `
+      <div class="card" id="wt-editor">
+        <div class="num-grid" style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px">
+          <div class="field"><label>Weight (kg)</label>
+            <input class="input" id="wt-kg" type="number" step="0.1" min="20" max="300" inputmode="decimal" value="${editing ? editing.kg : (latest ? latest.kg : '')}"></div>
+          <div class="field"><label>When</label>
+            <input class="input" id="wt-when" type="datetime-local" value="${toLocalInput(editing ? editing.t : now)}"></div>
+        </div>
+        <div class="field" style="margin-bottom:0"><label>Note</label>
+          <input class="input" id="wt-note" type="text" placeholder="optional" value="${editing ? esc(editing.note || '') : ''}"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-primary" id="wt-save" style="flex:1">${icons.check} Save</button>
+          ${editing ? `<button class="btn" id="wt-del" aria-label="Delete">${icons.trash}</button>` : ''}
+          <button class="btn" id="wt-cancel">Cancel</button>
+        </div>
+      </div>` : '';
+
+  const withDelta = all.map((e, i) => ({ ...e, d: i ? e.kg - all[i - 1].kg : null }));
+  const list = (range.days ? withDelta.filter((e) => e.t >= now - range.days * 86400000) : withDelta).reverse();
+  const rows = list.map((e) => `
+      <div class="wt-row tappable" data-wid="${e.id}">
+        <div class="wt-when">
+          <p class="date">${esc(fmtDate(e.t))}</p>
+          <p class="summary">${esc(fmtTime(e.t))}${e.note ? ' · ' + esc(e.note) : ''}</p>
+        </div>
+        <div class="wt-kg">${fmtKg(e.kg)}<span class="u">kg</span></div>
+        <div class="wt-delta ${e.d == null ? 'zero' : deltaClass(e.d)}">${e.d == null ? '' : fmtDelta(e.d) + ' kg'}</div>
+      </div>`).join('');
+
+  mount(`
+    ${topbar('Weight', {
+      back: '#/',
+      sub: all.length ? `${all.length} weigh-in${all.length === 1 ? '' : 's'}${wts.targetKg ? ` · target ${wts.targetKg} kg` : ''}` : '',
+      right: `<button class="icon-btn" id="wt-target-btn" aria-label="Set target">${icons.target}</button>`,
+    })}
+    <main class="screen">
+      ${editorCard}
+      ${all.length ? `
+      <div class="card">
+        <div class="range-tabs">${WEIGHT_RANGES.map((r) =>
+          `<button class="chip-tab${r.key === weightRange ? ' on' : ''}" data-range="${r.key}">${r.label}</button>`).join('')}</div>
+        ${weightChart(inRange, wts.targetKg)}
+        <div class="wt-stats">
+          <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.kg) : '–'}<span class="u">kg</span></div></div>
+          <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.kg) : '–'}<span class="u">kg</span></div></div>
+          <div><div class="stat-l">Development</div><div class="stat-v wt-delta ${deltaClass(dev)}" style="font-weight:750">${fmtDelta(dev)}<span class="u">kg</span></div></div>
+        </div>
+      </div>
+
+      <div class="section-label">Performance</div>
+      <div class="card">
+        ${perf.map((p) => `
+        <div class="mbar">
+          <div class="mbar-top"><span>${p.label}</span><span class="wt-delta ${deltaClass(p.delta)}">${fmtDelta(p.delta)} kg</span></div>
+          <div class="mbar-track"><div class="mbar-fill ${deltaClass(p.delta)}" style="width:${Math.max(3, (Math.abs(p.delta) / maxAbs) * 100)}%"></div></div>
+        </div>`).join('')}
+      </div>
+
+      <div class="section-label">Weight development</div>
+      <div class="card wt-list">${rows}</div>
+      <div class="spacer"></div>
+      ` : `
+      <div class="empty"><div class="big">${icons.chart}</div>
+        <p style="font-size:18px;color:var(--text);font-weight:600">No weigh-ins yet</p>
+        <p>Log your weight and the chart builds itself.</p>
+      </div>`}
+    </main>
+    <button class="fab" id="wt-add">${icons.plus}<span>Log</span></button>
+  `);
+
+  qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; screenWeight(); }));
+  qs('#wt-add').addEventListener('click', () => { weightEditing = 'new'; screenWeight(); });
+  qsa('[data-wid]').forEach((r) => r.addEventListener('click', () => { weightEditing = r.dataset.wid; screenWeight(); window.scrollTo(0, 0); }));
+  qs('#wt-target-btn').addEventListener('click', () => {
+    const v = prompt('Target weight (kg) — leave empty to remove', wts.targetKg ?? '');
+    if (v === null) return;
+    const kg = parseFloat(v);
+    DB.setWeightTarget(Number.isFinite(kg) && kg > 0 ? Math.round(kg * 10) / 10 : null);
+    screenWeight();
+  });
+  if (weightEditing) {
+    const kgEl = qs('#wt-kg');
+    if (kgEl && !editing) { kgEl.focus(); kgEl.select(); }
+    qs('#wt-save').addEventListener('click', () => {
+      const kg = parseFloat(qs('#wt-kg').value);
+      if (!Number.isFinite(kg) || kg < 20 || kg > 300) { toast('Enter a weight in kg'); return; }
+      const when = new Date(qs('#wt-when').value);
+      const t = Number.isFinite(when.getTime()) ? when.getTime() : Date.now();
+      const note = qs('#wt-note').value.trim();
+      if (editing) DB.updateWeight(editing.id, { kg: Math.round(kg * 10) / 10, t, note });
+      else DB.addWeight(Math.round(kg * 10) / 10, { t, note });
+      weightEditing = null;
+      toast('Weight logged');
+      screenWeight();
+    });
+    const del = qs('#wt-del');
+    if (del) del.addEventListener('click', () => {
+      if (!confirm('Delete this weigh-in?')) return;
+      DB.deleteWeight(editing.id);
+      weightEditing = null;
+      screenWeight();
+    });
+    qs('#wt-cancel').addEventListener('click', () => { weightEditing = null; screenWeight(); });
+  }
+}
+
+/* ============================================================
    SCREEN: Insights — overview of everything logged
    ============================================================ */
 function screenInsights() {
@@ -1434,6 +1670,7 @@ function router() {
   if (hash === '#/' || hash === '' || hash === '#') return screenHome();
   if (parts[0] === 'history') return screenHistory(null);
   if (parts[0] === 'insights') return screenInsights();
+  if (parts[0] === 'weight') return screenWeight();
   if (parts[0] === 'session') return screenSession(parts[1]);
   if (parts[0] === 'exercise') return screenExercise(decodeURIComponent(parts.slice(1).join('/')));
   if (parts[0] === 'settings') return screenSettings();

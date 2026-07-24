@@ -10,6 +10,7 @@ const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
 const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
+const KEY_WEIGHTS = 'wt_weights_v1'; // body-weight log {entries:[{id,t,kg,note}], targetKg, heightCm}
 const KEY_EXTRA = 'wt_remote_extra_v1'; // synced fields this app version doesn't know (see applyRemote)
 const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
@@ -25,7 +26,7 @@ function read(key, fallback) {
 function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   // mark data dirty + notify the sync layer when plans/sessions change
-  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL) {
+  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS) {
     localStorage.setItem(KEY_UPDATED, String(Date.now()));
     if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
   }
@@ -40,7 +41,7 @@ export function markDirty() { localStorage.setItem(KEY_UPDATED, String(Date.now(
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
    understand. */
-const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal'];
+const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal', 'weights'];
 
 /** The full syncable dataset (what gets pushed to / pulled from the cloud). */
 export function snapshot() {
@@ -49,6 +50,7 @@ export function snapshot() {
     plans: getPlans(),
     sessions: read(KEY_SESSIONS, []),
     goal: getGoal(),
+    weights: read(KEY_WEIGHTS, null),
   };
 }
 /** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
@@ -58,6 +60,10 @@ export function applyRemote(data, ts) {
   if (data && 'goal' in data) {
     if (data.goal) localStorage.setItem(KEY_GOAL, JSON.stringify(data.goal));
     else localStorage.removeItem(KEY_GOAL);
+  }
+  if (data && 'weights' in data) {
+    if (data.weights) localStorage.setItem(KEY_WEIGHTS, JSON.stringify(data.weights));
+    else localStorage.removeItem(KEY_WEIGHTS);
   }
   const extra = {};
   for (const k of Object.keys(data || {})) if (!KNOWN_SYNC_FIELDS.includes(k)) extra[k] = data[k];
@@ -76,6 +82,55 @@ export function setGoal(goal) {
 
 export function uid() {
   return 'x' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+}
+
+/* ---------- body-weight tracking (weight screen) ---------- */
+export function getWeights() {
+  const w = read(KEY_WEIGHTS, null);
+  if (!w || !Array.isArray(w.entries)) return { entries: [], targetKg: null, heightCm: null };
+  return w;
+}
+function saveWeights(w) {
+  w.entries.sort((a, b) => a.t - b.t);
+  write(KEY_WEIGHTS, w);
+}
+export function addWeight(kg, { t = Date.now(), note = '' } = {}) {
+  const w = getWeights();
+  const entry = { id: uid(), t, kg, note };
+  w.entries.push(entry);
+  saveWeights(w);
+  return entry;
+}
+export function updateWeight(id, patch) {
+  const w = getWeights();
+  const e = w.entries.find((x) => x.id === id);
+  if (!e) return;
+  Object.assign(e, patch);
+  saveWeights(w);
+}
+export function deleteWeight(id) {
+  const w = getWeights();
+  w.entries = w.entries.filter((x) => x.id !== id);
+  saveWeights(w);
+}
+export function setWeightTarget(kg) {
+  const w = getWeights();
+  w.targetKg = kg;
+  saveWeights(w);
+}
+/** Linearly interpolated weight at time t (null with no data). */
+export function weightAt(entries, t) {
+  if (!entries.length) return null;
+  if (t <= entries[0].t) return entries[0].kg;
+  const last = entries[entries.length - 1];
+  if (t >= last.t) return last.kg;
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].t >= t) {
+      const a = entries[i - 1], b = entries[i];
+      return a.kg + (b.kg - a.kg) * ((t - a.t) / (b.t - a.t || 1));
+    }
+  }
+  return last.kg;
 }
 
 /* ---------- plans ---------- */

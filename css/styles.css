@@ -373,3 +373,29 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
   z-index: 50; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
   animation: fade 0.18s ease;
 }
+
+/* ---------- Weight screen ---------- */
+.range-tabs { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip-tab {
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  border-radius: 999px; padding: 6px 9px; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.chip-tab.on { background: var(--accent); border-color: var(--accent); color: #07281a; }
+.wchart { width: 100%; height: auto; display: block; }
+.wt-stats { display: flex; text-align: center; margin-top: 12px; }
+.wt-stats > div { flex: 1; }
+.wt-stats .stat-v { font-size: 22px; }
+.wt-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); }
+.wt-row:first-child { border-top: 0; padding-top: 2px; }
+.wt-row:last-child { padding-bottom: 2px; }
+.wt-when { flex: 1; min-width: 0; }
+.wt-when .date { font-weight: 600; margin: 0 0 2px; }
+.wt-when .summary { font-size: 13px; color: var(--muted); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-kg { font-size: 19px; font-weight: 700; white-space: nowrap; }
+.wt-kg .u { font-size: 12px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+.wt-delta { min-width: 64px; text-align: right; font-weight: 650; font-size: 14px; white-space: nowrap; }
+.wt-delta.gain { color: var(--danger); }
+.wt-delta.loss { color: var(--accent); }
+.wt-delta.zero { color: var(--muted); }
+.mbar-fill.gain { background: var(--danger); }
+.mbar-fill.zero { background: var(--muted); }

@@ -39,10 +39,13 @@ function check(cond, msg) {
     try { localStorage.setItem('wt_sync_id', 'smoke-test'); } catch (_) {}
   });
 
-  // fresh state
+  // fresh state. The just-installed service worker claims the page and
+  // self-reloads once (index.html controllerchange handler) — our own reload
+  // can lose that race with ERR_ABORTED, but either way the page ends up
+  // freshly loaded, so tolerate the abort and wait for the app shell.
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await page.reload().catch(() => {});
   await page.waitForSelector('.topbar');
 
   console.log('\n[1] Plans auto-load on a fresh device (no template step)');
@@ -614,6 +617,57 @@ function check(cond, msg) {
   await page.reload();
   await page.waitForSelector('.plan-card', { timeout: 3000 });
   check((await page.locator('.plan-card').count()) >= 5, 'confirmed-empty cloud still auto-seeds the starter plans');
+
+  console.log('\n[7w] Weight tracking (chart, log, performance)');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#weight-bar');
+  check((await page.locator('#weight-bar').count()) === 1, 'home shows the weight card');
+  await page.locator('#weight-bar').click();
+  await page.waitForSelector('#wt-add');
+  check(/#\/weight/.test(page.url()), 'weight card opens the weight screen');
+  // first weigh-in
+  await page.locator('#wt-add').click();
+  await page.waitForSelector('#wt-kg');
+  await page.locator('#wt-kg').fill('74.5');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('.wt-row');
+  check((await page.locator('.wt-row').count()) === 1, 'first weigh-in appears in the log');
+  // second weigh-in with a note -> chart + delta vs previous
+  await page.locator('#wt-add').click();
+  await page.waitForSelector('#wt-kg');
+  await page.locator('#wt-kg').fill('74');
+  await page.locator('#wt-note').fill('morning');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('.wchart');
+  check((await page.locator('.wt-row').count()) === 2, 'second weigh-in logged, chart renders');
+  const topRow = ((await page.locator('.wt-row').first().textContent()) || '').replace(/\s+/g, ' ');
+  check(topRow.includes('74') && topRow.includes('-0.5'), `newest first with delta vs previous (${topRow.trim()})`);
+  check(topRow.includes('morning'), 'note shows on the entry');
+  check((await page.locator('.chip-tab').count()) === 5, 'range tabs render (30/60/90/year/all)');
+  check((await page.locator('.mbar').count()) === 4, 'performance bars render (1w/4w/3m/all)');
+  const wtStats = ((await page.locator('.wt-stats').textContent()) || '').replace(/\s+/g, ' ');
+  check(wtStats.includes('74.5') && wtStats.includes('-0.5'), `start/now/development stats (${wtStats.trim()})`);
+  // edit the newest entry
+  await page.locator('.wt-row').first().click();
+  await page.waitForSelector('#wt-del');
+  await page.locator('#wt-kg').fill('73.8');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('.wt-row');
+  check(((await page.locator('.wt-row').first().textContent()) || '').includes('73.8'), 'editing an entry updates it');
+  // delete it (confirm dialog auto-accepted)
+  await page.locator('.wt-row').first().click();
+  await page.waitForSelector('#wt-del');
+  await page.locator('#wt-del').click();
+  await page.waitForTimeout(300);
+  check((await page.locator('.wt-row').count()) === 1, 'deleting an entry removes it');
+  // weights ride the sync snapshot
+  const wSnap = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_weights_v1') || 'null'));
+  check(!!(wSnap && wSnap.entries && wSnap.entries.length === 1 && wSnap.entries[0].kg === 74.5),
+    'weight store holds the surviving entry for sync');
+  // home card reflects the latest weigh-in
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#weight-bar');
+  check(((await page.locator('#weight-bar').textContent()) || '').includes('74.5'), 'home weight card shows current weight');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

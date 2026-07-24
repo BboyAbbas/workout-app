@@ -49,11 +49,28 @@ export async function pull() {
       // device still stays deleted here.
       const pushed = Number(localStorage.getItem(KEY_PUSHED)) || 0;
       let mergedIn = 0;
-      if (localUpdated && localUpdated !== pushed && Array.isArray(data.sessions)) {
-        const have = new Set(data.sessions.map((s) => s && s.id));
-        const mine = DB.snapshot().sessions || [];
-        const missing = mine.filter((s) => s && s.id && !have.has(s.id));
-        if (missing.length) { data.sessions = data.sessions.concat(missing); mergedIn = missing.length; }
+      if (localUpdated && localUpdated !== pushed) {
+        const local = DB.snapshot();
+        if (Array.isArray(data.sessions)) {
+          const have = new Set(data.sessions.map((s) => s && s.id));
+          const missing = (local.sessions || []).filter((s) => s && s.id && !have.has(s.id));
+          if (missing.length) { data.sessions = data.sessions.concat(missing); mergedIn += missing.length; }
+        }
+        // same union for weight entries logged offline (weights is one object,
+        // so without this a remote pull would drop an unpushed weigh-in)
+        const mineW = local.weights;
+        if (mineW && Array.isArray(mineW.entries) && mineW.entries.length) {
+          if (data.weights && Array.isArray(data.weights.entries)) {
+            const haveW = new Set(data.weights.entries.map((e) => e && e.id));
+            const missW = mineW.entries.filter((e) => e && e.id && !haveW.has(e.id));
+            if (missW.length) {
+              data.weights.entries = data.weights.entries.concat(missW).sort((a, b) => a.t - b.t);
+              mergedIn += missW.length;
+            }
+          } else if (!data.weights) {
+            data.weights = mineW; mergedIn += mineW.entries.length;
+          }
+        }
       }
       DB.applyRemote(data, remote.updatedAt);
       localStorage.setItem(KEY_PUSHED, String(remote.updatedAt)); // already matches cloud
