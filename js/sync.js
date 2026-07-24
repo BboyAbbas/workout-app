@@ -27,13 +27,17 @@ function headers() {
 }
 function url() { return `${ENDPOINT}?id=${encodeURIComponent(USER_ID)}`; }
 
-/** Pull remote; if it's newer than local, apply it and re-render. */
+/** Pull remote; if it's newer than local, apply it and re-render.
+ *  Resolves to how it went: 'applied' | 'stale' | 'empty' | 'error' | 'busy'.
+ *  Callers may only seed defaults on 'empty' (cloud CONFIRMED empty) — a
+ *  failed pull on a fresh device must never lead to seeding + pushing
+ *  starter plans over the real shared doc. */
 export async function pull() {
-  if (pulling) return;
+  if (pulling) return 'busy';
   pulling = true;
   try {
     const r = await fetch(url(), { headers: headers() });
-    if (!r.ok) return;
+    if (!r.ok) return 'error';
     const remote = await r.json();
     const localUpdated = DB.getUpdatedAt();
     if (remote && remote.updatedAt && remote.updatedAt > localUpdated) {
@@ -55,8 +59,10 @@ export async function pull() {
       localStorage.setItem(KEY_PUSHED, String(remote.updatedAt)); // already matches cloud
       if (onApplied) onApplied();
       if (mergedIn) { DB.markDirty(); push(); } // cloud lacks what we kept — send it up
+      return 'applied';
     }
-  } catch (_) { /* offline — stay on local, retry next focus/change */ }
+    return remote && remote.updatedAt ? 'stale' : 'empty';
+  } catch (_) { return 'error'; /* offline — stay on local, retry next focus/change */ }
   finally { pulling = false; }
 }
 

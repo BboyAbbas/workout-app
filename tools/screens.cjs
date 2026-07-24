@@ -14,6 +14,11 @@ const fs = require('fs');
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   // accept the app's confirms (e.g. finish-without-cardio nudge) like smoke_test does
   page.on('dialog', (d) => d.accept());
+  // belt-and-braces: any request that slips past the route stub may only ever
+  // touch a TEST doc, never abbas-main
+  await page.addInitScript(() => {
+    try { localStorage.setItem('wt_sync_id', 'screens-test'); } catch (_) {}
+  });
 
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());

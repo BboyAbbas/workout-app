@@ -34,6 +34,9 @@ function check(cond, msg) {
   await page.addInitScript(() => {
     window.__vibes = [];
     navigator.vibrate = (p) => { window.__vibes.push(p); return true; };
+    // belt-and-braces: even a request that slips past the route stub (e.g. via
+    // the service worker) may only ever touch a TEST doc, never abbas-main
+    try { localStorage.setItem('wt_sync_id', 'smoke-test'); } catch (_) {}
   });
 
   // fresh state
@@ -589,6 +592,28 @@ function check(cond, msg) {
   await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
   await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+
+  console.log('\n[7r] Failed first pull on an empty device must NOT auto-seed (data-wipe guard)');
+  // a fresh device whose first pull errors must not seed + push defaults over
+  // the real shared doc — it shows the manual "Load my workout plans" button
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: 'not-json' }));
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.topbar');
+  await page.waitForTimeout(600); // give the failed pull time to settle
+  check((await page.locator('.plan-card').count()) === 0, 'no plans auto-seeded when the cloud pull failed');
+  check((await page.locator('#seed-plans').count()) === 1, 'manual "Load my workout plans" button offered instead');
+  // back to the normal stub: a confirmed-EMPTY cloud ({}) still auto-seeds
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card', { timeout: 3000 });
+  check((await page.locator('.plan-card').count()) >= 5, 'confirmed-empty cloud still auto-seeds the starter plans');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

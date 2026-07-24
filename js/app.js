@@ -1464,10 +1464,13 @@ window.addEventListener('load', router);
 router();
 
 // cloud sync: pull newest on load/focus, push on change. Re-render on remote apply.
-// After the first pull, if there are still no plans (fresh device / post-reset),
-// auto-load the program's plans so the app is ready with no "add template" step.
-initSync(() => router()).then(() => {
-  if (!DB.getPlans().length) { DB.seedDefaultPlans(); router(); }
+// After the first pull, if the cloud is CONFIRMED empty and there are still no
+// plans (fresh device / post-reset), auto-load the program's plans. A FAILED
+// pull must not seed: the seeded defaults would auto-push and wipe the real
+// shared doc (that bit us on 2026-07-24). The manual "Load my workout plans"
+// button still covers a genuinely offline first run.
+initSync(() => router()).then((st) => {
+  if (st === 'empty' && !DB.getPlans().length) { DB.seedDefaultPlans(); router(); }
 });
 
 /* ============================================================
