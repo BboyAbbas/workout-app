@@ -728,6 +728,41 @@ function check(cond, msg) {
   check((await page.locator('.cal .cal-cell').count()) >= 7, 'consistency heatmap renders at the bottom of home');
   check((await page.locator('#weight-bar').getAttribute('data-nav')) === '#/weight', 'combined card still opens the weight screen');
 
+  console.log('\n[7y] Cardio-only plans stay out of the up-next queue');
+  const upNext = await page.evaluate(() => {
+    const plans = JSON.parse(localStorage.getItem('wt_plans_v1'));
+    // pure-cardio plan at the end of the list (mirrors the real "Cardio" plan)
+    plans.push({ id: 'cardioplan1', name: 'Cardio', createdAt: Date.now(),
+      exercises: [{ id: 'ce1', name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 }] });
+    localStorage.setItem('wt_plans_v1', JSON.stringify(plans));
+    // last trained = LAST lifting plan -> next-in-list-order would be Cardio;
+    // the queue must skip it and wrap to the first lifting plan
+    const lifting = plans[plans.length - 2];
+    localStorage.setItem('wt_sessions_v1', JSON.stringify([{
+      id: 'lift1', planId: lifting.id, planName: lifting.name,
+      startedAt: Date.now() - 3600000, durationSec: 1800,
+      entries: [{ exerciseId: 'x1', name: 'Romanian Deadlift', kind: 'strength', sets: [{ reps: 8, weight: 60 }] }],
+    }]));
+    return plans[0].name;
+  });
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  check(((await page.locator('.plan-card.plan-next .name').first().textContent()) || '').includes(upNext),
+    `up-next wraps past the cardio plan to the first lifting plan (${upNext})`);
+  check((await page.locator('.plan-card').filter({ hasText: 'Cardio' }).locator('.next-chip').count()) === 0,
+    'cardio plan never carries the up-next chip');
+  // a spontaneous cardio session must not advance the queue
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('wt_sessions_v1'));
+    s.push({ id: 'cs1', planId: 'cardioplan1', planName: 'Cardio', startedAt: Date.now(), durationSec: 1200,
+      entries: [{ exerciseId: 'ce1', name: 'Incline Walk', kind: 'treadmill', sets: [{ minutes: 20, incline: 12, speed: 5 }] }] });
+    localStorage.setItem('wt_sessions_v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  check(((await page.locator('.plan-card.plan-next .name').first().textContent()) || '').includes(upNext),
+    'logging a cardio session does not advance the up-next queue');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

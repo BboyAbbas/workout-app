@@ -328,15 +328,23 @@ export function getSessions() {
 export function getSessionsForPlan(planId) {
   return getSessions().filter((s) => s.planId === planId);
 }
+/** A plan is cardio-only when every exercise is a cardio kind (a lifting plan
+ *  with a cardio finisher does NOT count). Cardio is done spontaneously, so
+ *  these plans stay out of the up-next rotation entirely. */
+function isCardioPlan(p) {
+  return !!(p && p.exercises && p.exercises.length && p.exercises.every(isCardio));
+}
 /** The plan that's up next: the one after the most recently trained plan in
- *  list order (wraps around). No history yet -> the first plan. */
+ *  list order (wraps around). No history yet -> the first plan. Cardio-only
+ *  plans are not part of the queue — never marked next, and logging a cardio
+ *  session never advances the rotation. */
 export function nextPlanId() {
-  const plans = getPlans();
-  if (!plans.length) return null;
-  const last = getSessions().find((s) => plans.some((p) => p.id === s.planId));
-  if (!last) return plans[0].id;
-  const i = plans.findIndex((p) => p.id === last.planId);
-  return plans[(i + 1) % plans.length].id;
+  const rot = getPlans().filter((p) => !isCardioPlan(p));
+  if (!rot.length) return null;
+  const last = getSessions().find((s) => rot.some((p) => p.id === s.planId));
+  if (!last) return rot[0].id;
+  const i = rot.findIndex((p) => p.id === last.planId);
+  return rot[(i + 1) % rot.length].id;
 }
 export function addSession(session) {
   const sessions = read(KEY_SESSIONS, []);
