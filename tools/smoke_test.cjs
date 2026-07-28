@@ -710,6 +710,24 @@ function check(cond, msg) {
   check(!('weights' in adopted.extra) && adopted.extra.future, 'adopted field removed from extra, unknown fields kept');
   check(((await page.locator('#weight-bar').textContent()) || '').includes('70.5'), 'adopted weigh-in visible on the home card');
 
+  console.log('\n[7x] Combined weight+goal card and home heatmap');
+  await page.evaluate(() => {
+    localStorage.setItem('wt_goal_v1', JSON.stringify({ name: 'Lock-in', startKg: 76, targetKg: 72, startDate: '2026-07-01', endDate: '2099-01-01' }));
+    localStorage.setItem('wt_sessions_v1', JSON.stringify([{
+      id: 'hm1', planId: 'p', planName: 'X',
+      startedAt: Date.now() - 86400000, durationSec: 1800,
+      entries: [{ exerciseId: 'e', name: 'Bench Press', kind: 'strength', sets: [{ reps: 5, weight: 50 }] }],
+    }]));
+  });
+  await page.reload();
+  await page.waitForSelector('#weight-bar');
+  const combo = ((await page.locator('#weight-bar').textContent()) || '').replace(/\s+/g, ' ');
+  check(combo.includes('70.5') && combo.includes('72') && combo.includes('left'),
+    `combined card shows current kg + goal target + days left (${combo.trim()})`);
+  check((await page.locator('#weight-bar .mbar-fill').count()) === 1, 'combined card shows the goal progress bar');
+  check((await page.locator('.cal .cal-cell').count()) >= 7, 'consistency heatmap renders at the bottom of home');
+  check((await page.locator('#weight-bar').getAttribute('data-nav')) === '#/weight', 'combined card still opens the weight screen');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

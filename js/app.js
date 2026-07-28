@@ -186,31 +186,42 @@ function screenHome() {
       <button class="icon-btn btn-primary" style="border-radius:12px">${icons.play}</button>
     </div>` : '';
 
-  // weight-loss lock-in banner: countdown to the goal date
+  // weight + goal card: current kg, target, days left, progress — one row, taps to the weight screen
   const goal = DB.getGoal();
-  let goalBar = '';
+  const wts = DB.getWeights();
+  const wLast = wts.entries[wts.entries.length - 1];
+  let trend = '';
+  if (wLast) {
+    const wkAgo = DB.weightAt(wts.entries, Date.now() - 7 * 86400000);
+    const wd = wkAgo == null ? 0 : wLast.kg - wkAgo;
+    trend = Math.round(wd * 10) === 0 ? 'steady this week' : `${fmtDelta(wd)} kg this week`;
+  }
+  let weightBar;
   if (goal && goal.endDate) {
     const end = new Date(goal.endDate + 'T23:59:59');
     const daysLeft = Math.max(0, Math.ceil((end - Date.now()) / 86400000));
     const over = end < Date.now();
-    goalBar = `
-    <div class="card" id="goal-bar" style="display:flex;align-items:center;gap:12px">
-      <div style="flex:1">
-        <p class="name" style="margin:0 0 2px;font-weight:650">🎯 ${esc(goal.name || 'Lock-in')} · ${esc(goal.startKg)} → ${esc(goal.targetKg)} kg</p>
-        <p class="desc" style="margin:0;color:var(--muted)">${over ? 'Goal date passed — weigh in and set the next one' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left · until ${esc(fmtDate(end.getTime()))}`}</p>
+    const nowKg = wLast ? wLast.kg : +goal.startKg;
+    const span = +goal.startKg - +goal.targetKg;
+    const pct = span > 0 ? Math.max(0, Math.min(100, ((+goal.startKg - nowKg) / span) * 100)) : 0;
+    const toGo = nowKg - +goal.targetKg;
+    const leftSub = wLast
+      ? `${trend} · ${toGo > 0 ? fmtKg(toGo) + ' kg to go' : 'target reached 💪'}`
+      : 'log a weigh-in to track progress';
+    weightBar = `
+    <div class="card tappable" id="weight-bar" data-nav="#/weight">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <div style="font-size:26px;font-weight:700">${wLast ? `${fmtKg(wLast.kg)}<span style="font-size:14px;color:var(--muted);font-weight:600"> kg</span>` : '⚖️ Weight'}</div>
+        <div style="font-weight:650">🎯 ${esc(goal.targetKg)} kg</div>
       </div>
-      <div style="font-size:24px;font-weight:700;color:var(--accent)">${over ? '🏁' : daysLeft + 'd'}</div>
+      <div style="display:flex;justify-content:space-between;gap:10px;margin:2px 0 9px;font-size:13px;color:var(--muted)">
+        <span>${leftSub}</span>
+        <span style="white-space:nowrap">${over ? '🏁 goal passed' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}</span>
+      </div>
+      <div class="mbar-track" style="height:7px"><div class="mbar-fill" style="width:${pct}%"></div></div>
+      <p class="desc" style="margin:8px 0 0;color:var(--muted);font-size:12px">${esc(goal.name || 'Goal')} · ${over ? 'weigh in and set the next one' : `until ${esc(fmtDate(end.getTime()).toLowerCase())}`}</p>
     </div>`;
-  }
-
-  // body-weight card: current kg + week trend, taps through to the weight screen
-  const wts = DB.getWeights();
-  const wLast = wts.entries[wts.entries.length - 1];
-  let weightBar;
-  if (wLast) {
-    const wkAgo = DB.weightAt(wts.entries, Date.now() - 7 * 86400000);
-    const wd = wkAgo == null ? 0 : wLast.kg - wkAgo;
-    const trend = Math.round(wd * 10) === 0 ? 'steady this week' : `${fmtDelta(wd)} kg this week`;
+  } else if (wLast) {
     weightBar = `
     <div class="card tappable" id="weight-bar" data-nav="#/weight" style="display:flex;align-items:center;gap:12px">
       <div style="flex:1">
@@ -240,9 +251,9 @@ function screenHome() {
     })}
     <main class="screen">
       ${resumeBar}
-      ${goalBar}
       ${weightBar}
       ${body}
+      ${consistencyBlock(DB.getSessions())}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
   `);
@@ -1452,6 +1463,56 @@ function screenWeight() {
 }
 
 /* ============================================================
+   Consistency heatmap (last 13 weeks, Mon-top columns) —
+   one shared component, rendered on Home and Insights
+   ============================================================ */
+function consistencyBlock(sessions) {
+  if (!sessions.length) return '';
+  const startOfDay = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+  const todayStart = startOfDay(Date.now());
+  const dow = (new Date().getDay() + 6) % 7;           // 0 = Monday
+
+  // sets-per-day buckets
+  const dayCounts = {};
+  for (const s of sessions) {
+    const d = startOfDay(s.startedAt);
+    let c = 0; for (const e of (s.entries || [])) c += (e.sets || []).length;
+    dayCounts[d] = (dayCounts[d] || 0) + c;
+  }
+  const WEEKS = 13;
+  const mondayThisWeek = todayStart - dow * 86400000;
+  const calStart = mondayThisWeek - (WEEKS - 1) * 7 * 86400000;
+  let calCells = '';
+  for (let wk = 0; wk < WEEKS; wk++) {
+    for (let d = 0; d < 7; d++) {
+      const day = calStart + (wk * 7 + d) * 86400000;
+      if (day > todayStart) { calCells += '<div class="cal-cell cal-future"></div>'; continue; }
+      const c = dayCounts[day] || 0;
+      const lvl = c === 0 ? 0 : c <= 4 ? 1 : c <= 8 ? 2 : c <= 14 ? 3 : 4;
+      calCells += `<div class="cal-cell cal-l${lvl}" title="${esc(fmtDate(day))} · ${c} sets"></div>`;
+    }
+  }
+
+  // longest streak ever (consecutive workout days)
+  let bestStreak = 0, run = 0;
+  const days = Object.keys(dayCounts).map(Number).sort((a, b) => a - b);
+  for (let i = 0; i < days.length; i++) {
+    run = (i > 0 && days[i] - days[i - 1] === 86400000) ? run + 1 : 1;
+    if (run > bestStreak) bestStreak = run;
+  }
+
+  return `
+    <div class="section-label">Consistency</div>
+    <div class="card">
+      <div class="cal">${calCells}</div>
+      <div class="cal-legend">
+        <span>best streak <b>${bestStreak}</b> day${bestStreak === 1 ? '' : 's'}</span>
+        <span class="cal-key">less ${[0, 1, 2, 3, 4].map((l) => `<i class="cal-cell cal-l${l}"></i>`).join('')} more</span>
+      </div>
+    </div>`;
+}
+
+/* ============================================================
    SCREEN: Insights — overview of everything logged
    ============================================================ */
 function screenInsights() {
@@ -1507,35 +1568,6 @@ function screenInsights() {
   const maxM = muscleRows.length ? muscleRows[0][1] : 1;
   const setDenom = totalSets || 1; // guard NaN% if an imported session has no sets
 
-  // longest streak ever (consecutive workout days)
-  let bestStreak = 0, run = 0;
-  const sortedDays = [...daySet].sort((a, b) => a - b);
-  for (let i = 0; i < sortedDays.length; i++) {
-    run = (i > 0 && sortedDays[i] - sortedDays[i - 1] === 86400000) ? run + 1 : 1;
-    if (run > bestStreak) bestStreak = run;
-  }
-
-  // sets-per-day -> consistency calendar (last 13 weeks, Mon-top columns)
-  const dayCounts = {};
-  for (const s of sessions) {
-    const d = startOfDay(s.startedAt);
-    let c = 0; for (const e of (s.entries || [])) c += (e.sets || []).length;
-    dayCounts[d] = (dayCounts[d] || 0) + c;
-  }
-  const WEEKS = 13;
-  const mondayThisWeek = todayStart - dow * 86400000;
-  const calStart = mondayThisWeek - (WEEKS - 1) * 7 * 86400000;
-  let calCells = '';
-  for (let wk = 0; wk < WEEKS; wk++) {
-    for (let d = 0; d < 7; d++) {
-      const day = calStart + (wk * 7 + d) * 86400000;
-      if (day > todayStart) { calCells += '<div class="cal-cell cal-future"></div>'; continue; }
-      const c = dayCounts[day] || 0;
-      const lvl = c === 0 ? 0 : c <= 4 ? 1 : c <= 8 ? 2 : c <= 14 ? 3 : 4;
-      calCells += `<div class="cal-cell cal-l${lvl}" title="${esc(fmtDate(day))} · ${c} sets"></div>`;
-    }
-  }
-
   const progress = DB.exerciseProgressSummary(); // strength records, best-first
   const stalls = progress.filter((r) => r.stalled);
 
@@ -1552,14 +1584,7 @@ function screenInsights() {
         ${stat('Total time', fmtDuration(totalSec))}
       </div>
 
-      <div class="section-label">Consistency</div>
-      <div class="card">
-        <div class="cal">${calCells}</div>
-        <div class="cal-legend">
-          <span>best streak <b>${bestStreak}</b> day${bestStreak === 1 ? '' : 's'}</span>
-          <span class="cal-key">less ${[0, 1, 2, 3, 4].map((l) => `<i class="cal-cell cal-l${l}"></i>`).join('')} more</span>
-        </div>
-      </div>
+      ${consistencyBlock(sessions)}
 
       <div class="section-label">Volume lifted</div>
       <div class="card">
