@@ -405,3 +405,135 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .mbar-fill.gain { background: var(--danger); }
 .mbar-fill.zero { background: var(--muted); }
 .wchart { cursor: pointer; }
+
+/* ---------- Plank trainer ---------- */
+:root { --gold: #f5c451; }
+
+/* home entry, sitting under the cardio block */
+.plank-home { display: flex; align-items: center; gap: 14px; }
+.plank-home .meta { flex: 1; min-width: 0; }
+.plank-home .name { font-size: 17px; font-weight: 620; margin: 0 0 3px; }
+.plank-home .desc { font-size: 13px; color: var(--muted); margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plank-home-icon {
+  width: 42px; height: 42px; flex: none; border-radius: 13px;
+  display: grid; place-items: center; color: var(--accent);
+  background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.28);
+}
+.plank-home-icon svg { width: 22px; height: 22px; }
+.plank-home-best { text-align: right; line-height: 1.15; }
+.plank-home-best b { display: block; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.plank-home-best span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+
+/* record hero on the trainer screen */
+.plank-hero { text-align: center; padding: 22px 16px 20px;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(52,211,153,0.10), transparent 70%), var(--surface); }
+.plank-hero-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.1em; font-weight: 700;
+}
+.plank-hero-label svg { width: 15px; height: 15px; color: var(--gold); }
+.plank-hero-v {
+  font-size: 54px; font-weight: 780; line-height: 1.05; margin: 6px 0 4px;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.plank-hero-sub { font-size: 13px; color: var(--muted); }
+
+/* one row, five options, never wrapping a lone chip onto its own line */
+.plank-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.plank-chips .chip-tab { min-width: 0; min-height: 46px; font-size: 15px; padding: 0 4px; }
+
+/* the live stage: ring, record, one huge button */
+.plank-screen { padding-bottom: 24px; }
+.plank-stage { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 6px; }
+.plank-stage > .btn { width: 100%; }
+.plank-cta { height: 60px; font-size: 18px; font-weight: 750; }
+.plank-sub { min-height: 44px; font-size: 14px; }
+
+.plank-dots { display: flex; gap: 8px; }
+.plank-dots i {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.plank-dots i.on { background: var(--accent); border-color: var(--accent); }
+
+.plank-ring-wrap { position: relative; width: min(74vw, 290px); aspect-ratio: 1; }
+.plank-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.plank-ring-bg { fill: none; stroke: var(--surface-2); stroke-width: 12; }
+.plank-ring-fill {
+  fill: none; stroke: var(--accent); stroke-width: 12; stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear, stroke 0.3s ease;
+}
+.plank-ring-wrap.resting .plank-ring-fill { stroke: #6aa9ff; }
+.plank-ring-wrap.past-best .plank-ring-fill { stroke: var(--gold); }
+.plank-ring-wrap.past-best { animation: plank-glow 1.6s ease-in-out infinite; border-radius: 50%; }
+@keyframes plank-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(245, 196, 81, 0.35)); }
+  50% { filter: drop-shadow(0 0 22px rgba(245, 196, 81, 0.7)); }
+}
+.plank-ring-mid {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+}
+/* the tenths sit ON the seconds' baseline, inside the ring — not adrift in the corner */
+.plank-time-row { display: flex; align-items: baseline; gap: 1px; }
+.plank-time {
+  font-size: 56px; font-weight: 760; font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em; line-height: 1;
+}
+.plank-tenths {
+  font-size: 23px; font-weight: 700; color: var(--muted);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.plank-mid-label {
+  font-size: 12px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.1em; font-weight: 700;
+}
+
+/* the record, on screen for every second of the hold */
+.plank-pb {
+  display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap;
+  min-height: 30px; font-size: 14px; color: var(--muted); text-align: center;
+}
+.plank-pb b { font-size: 19px; font-weight: 750; color: var(--text); font-variant-numeric: tabular-nums; }
+.plank-pb.beat { color: var(--gold); animation: plank-pop 0.4s ease; }
+.plank-pb.beat b { color: var(--gold); letter-spacing: 0.06em; }
+.plank-pb.beat svg { width: 19px; height: 19px; }
+@keyframes plank-pop { from { transform: scale(0.86); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.plank-cue { font-size: 13.5px; color: var(--muted); text-align: center; margin: 0; max-width: 300px; }
+.plank-ready-n { font-size: 40px; font-weight: 760; letter-spacing: -0.02em; }
+.plank-ready-n span { font-size: 19px; color: var(--muted); font-weight: 600; }
+.plank-rest-btns { display: flex; gap: 10px; width: 100%; }
+.plank-rest-btns .btn { flex: 1; }
+
+/* summary */
+.plank-summary { align-items: stretch; }
+.plank-pb-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--gold); border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(245,196,81,0.16), rgba(245,196,81,0.04));
+  color: var(--gold); padding: 15px 16px; font-size: 14px;
+  animation: plank-pop 0.45s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+.plank-pb-banner b { font-size: 16px; font-weight: 750; }
+.plank-pb-banner span { font-variant-numeric: tabular-nums; font-weight: 700; margin-left: auto; font-size: 19px; }
+.plank-pb-banner svg { width: 22px; height: 22px; flex: none; }
+.plank-pb-banner.first { border-color: var(--accent); color: var(--accent);
+  background: linear-gradient(135deg, rgba(52,211,153,0.16), rgba(52,211,153,0.04)); }
+.plank-totals { display: flex; text-align: center; }
+.plank-totals > div { flex: 1; }
+.plank-totals .stat-v { font-size: 22px; font-variant-numeric: tabular-nums; }
+.plank-summary-set b { font-variant-numeric: tabular-nums; }
+.plank-summary-set b.top { color: var(--accent); }
+
+.plank-hist-row .dur { font-variant-numeric: tabular-nums; }
+.plank-hist-row .plank-del { width: 40px; min-width: 40px; height: 40px; opacity: 0.65; }
+.plank-hist-row .plank-del svg { width: 18px; height: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .plank-ring-wrap.past-best { animation: none; }
+  .plank-pb.beat, .plank-pb-banner { animation: none; }
+  .plank-ring-fill { transition: none; }
+}

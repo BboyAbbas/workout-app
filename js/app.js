@@ -8,7 +8,7 @@ import * as DB from './db.js';
 import { initSync, pull, push } from './sync.js';
 import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert, scheduleWorkoutWatchdog, cancelWorkoutWatchdog } from './push.js';
 import {
-  esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt,
+  esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt, fmtHold,
   icons, toast, summariseSets, summariseCardio,
 } from './ui.js';
 
@@ -157,10 +157,11 @@ function screenHome() {
       <button class="btn btn-primary btn-block" id="seed-plans">${icons.plus} Load my workout plans</button>
       <div class="spacer"></div>
       <button class="btn btn-block" data-nav="#/plan/new">${icons.plus} Create your own</button>
+      ${plankHomeCard()}
     `;
   } else {
     const nextId = plans.length > 1 ? DB.nextPlanId() : null;
-    body = plans.map((p) => {
+    const cards = plans.map((p) => {
       const last = DB.getSessionsForPlan(p.id)[0];
       const isNext = p.id === nextId;
       const desc = last
@@ -174,7 +175,14 @@ function screenHome() {
           </div>
           <button class="icon-btn btn-primary" style="border-radius:12px" data-run="${p.id}" aria-label="Start">${icons.play}</button>
         </div>`;
-    }).join('');
+    });
+    // The plank trainer sits directly under the cardio block — after the LAST
+    // cardio-only plan wherever it happens to sit in the list, or at the end
+    // when there isn't one. Position follows the data, not a hard-coded index.
+    let lastCardio = -1;
+    plans.forEach((p, i) => { if (DB.isCardioPlan(p)) lastCardio = i; });
+    cards.splice(lastCardio >= 0 ? lastCardio + 1 : cards.length, 0, plankHomeCard());
+    body = cards.join('');
   }
 
   const resumeBar = active ? `
@@ -1463,6 +1471,398 @@ function screenWeight() {
 }
 
 /* ============================================================
+   SCREEN: Plank Trainer — a hold timer that chases one number.
+   Its own section under cardio, its own store: planks are never a plan and
+   never a workout session, so the up-next rotation cannot see them.
+   ============================================================ */
+
+const PLANK_FIRST_TARGET = 60; // no record yet -> a minute is the thing to beat
+const RING_C = 2 * Math.PI * 86; // circumference of the r=86 progress ring
+
+/** The home-screen entry point (rendered directly under the cardio block). */
+function plankHomeCard() {
+  const st = DB.plankStats();
+  const best = st.best;
+  const sub = best
+    ? `${st.sessions} session${st.sessions === 1 ? '' : 's'} · ${fmtDuration(st.totalSec)} held in total`
+    : 'Start the clock and set your first record';
+  return `
+    <div class="section-label">Plank</div>
+    <div class="card plank-home tappable" id="plank-card" data-nav="#/plank">
+      <div class="plank-home-icon">${icons.timer}</div>
+      <div class="meta">
+        <p class="name">Plank Trainer</p>
+        <p class="desc">${esc(sub)}</p>
+      </div>
+      <div class="plank-home-best">
+        <b>${best ? esc(fmtHold(best.sec)) : '—'}</b>
+        <span>${best ? 'best' : 'no record'}</span>
+      </div>
+    </div>`;
+}
+
+/** The ring: an SVG dial the live time fills. `pct` 0..1, over 1 = past the record. */
+function plankRing(pct, cls = '') {
+  const p = Math.max(0, Math.min(1, pct || 0));
+  return `
+    <div class="plank-ring-wrap ${cls}">
+      <svg class="plank-ring" viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="plank-ring-bg" cx="100" cy="100" r="86"/>
+        <circle class="plank-ring-fill" id="plank-ring-fill" cx="100" cy="100" r="86"
+          stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${(RING_C * (1 - p)).toFixed(1)}"/>
+      </svg>
+      <div class="plank-ring-mid" id="plank-ring-mid"></div>
+    </div>`;
+}
+
+/** Filled/empty dots — how far through the planned sets you are. */
+function plankDots(run) {
+  return `<div class="plank-dots">${
+    Array.from({ length: run.targetSets }, (_, i) =>
+      `<i class="${i < run.sets.length ? 'on' : ''}"></i>`).join('')
+  }</div>`;
+}
+
+function screenPlank() {
+  // An interrupted run comes back exactly where it was — unless it was left
+  // running for hours, in which case the hold is dropped and nothing is saved.
+  let run = DB.plankResume(DB.getPlankActive(), Date.now());
+  // The summary is transient: every hold in it is already saved, so opening the
+  // trainer again lands on the setup screen with the new record — never on the
+  // last session's summary.
+  if (run && run.phase === 'done') { DB.setPlankActive(null); run = null; }
+  if (run) DB.setPlankActive(run); // write the resolved state back before rendering
+  const bestAtOpen = DB.plankBest();
+
+  function persist() { DB.setPlankActive(run); }
+  function target() { // the number the ring fills toward
+    const b = DB.plankBest();
+    return b ? b.sec : PLANK_FIRST_TARGET;
+  }
+
+  /* ---- one action through the pure state machine, then the side effects ---- */
+  function apply(action) {
+    const now = Date.now();
+    const next = DB.plankStep(run, action, now);
+    if (next === run) return;
+    const ev = next.lastEvent;
+
+    if (ev === 'recorded') {
+      const set = next.sets[next.sets.length - 1];
+      const wasPB = DB.isPlankPB(set.sec);           // ask BEFORE recording
+      const first = !DB.plankBest();
+      DB.recordPlankSet(next.id, set.sec, {          // durable immediately
+        at: set.at, targetSets: next.targetSets, restSec: next.restSec,
+      });
+      if (wasPB) {
+        next.pbSec = set.sec;
+        celebrate(set.sec);
+      } else if (first) {
+        next.firstEver = true;
+        toast(`First plank logged — ${fmtHold(set.sec)} is the one to beat 💪`);
+      } else {
+        toast(`Set logged — ${fmtHold(set.sec)}`);
+      }
+    }
+    if (ev === 'discarded') toast('Too short to count — nothing logged');
+    if (ev === 'cancelled') toast('Set cancelled — nothing logged');
+
+    run = next;
+    persist();
+
+    if (run.phase === 'rest') {
+      scheduleServerRestAlert(run.restEndAt); // same online alert the workout rest uses
+    } else {
+      cancelServerRestAlert();
+      stopHum(); mediaSession(false);
+    }
+    if (run.phase === 'hold') { unlockAudio(); acquireWakeLock(); }
+    if (ev === 'restDone') restDone();
+    render();
+  }
+
+  function restDone() {
+    playBeep();
+    if (navigator.vibrate) navigator.vibrate([400, 120, 400]);
+    notifyRestDone();
+    stopHum(); mediaSession(false);
+    toast('Rest done — back into position 💪');
+  }
+
+  function celebrate(sec) {
+    playBeep();
+    if (navigator.vibrate) navigator.vibrate([120, 60, 120, 60, 320]);
+    toast(`🏆 New personal best — ${fmtHold(sec)}!`);
+  }
+
+  /* ---- live redraw: only the numbers change, never the whole screen ---- */
+  function paint() {
+    if (!run) return;
+    const now = Date.now();
+    const mid = qs('#plank-ring-mid');
+    const fill = qs('#plank-ring-fill');
+    const wrap = qs('.plank-ring-wrap');
+
+    if (run.phase === 'hold') {
+      const ms = Math.max(0, now - run.startAt);
+      const sec = Math.floor(ms / 1000);
+      const tenth = Math.floor((ms % 1000) / 100);
+      const goal = target();
+      const beat = sec >= goal;
+      if (mid) mid.innerHTML = `
+        <div class="plank-time-row">
+          <span class="plank-time" id="plank-time">${fmtClock(sec)}</span><span class="plank-tenths">.${tenth}</span>
+        </div>`;
+      if (fill) fill.setAttribute('stroke-dashoffset', String((RING_C * (1 - Math.min(1, sec / (goal || 1)))).toFixed(1)));
+      if (wrap) wrap.classList.toggle('past-best', beat);
+      const pb = qs('#plank-pb');
+      if (pb) {
+        if (!bestAtOpen) {
+          pb.className = 'plank-pb' + (beat ? ' beat' : '');
+          pb.innerHTML = beat
+            ? `<b>Past a full minute — keep going!</b>`
+            : `<span>First plank</span><b>${fmtHold(goal)}</b><span>is the target</span>`;
+        } else if (beat) {
+          pb.className = 'plank-pb beat';
+          pb.innerHTML = `${icons.trophy}<b>NEW BEST</b><span>+${fmtHold(sec - goal)} over ${fmtHold(goal)}</span>`;
+        } else {
+          pb.className = 'plank-pb';
+          pb.innerHTML = `<span>Best</span><b>${fmtHold(goal)}</b><span>· ${fmtHold(goal - sec)} to go</span>`;
+        }
+      }
+    } else if (run.phase === 'rest') {
+      const left = DB.plankRestSec(run, now);
+      if (mid) mid.innerHTML = `
+        <div class="plank-mid-label">Rest</div>
+        <div class="plank-time-row"><span class="plank-time" id="plank-rest-time">${fmtClock(left)}</span></div>`;
+      if (fill) fill.setAttribute('stroke-dashoffset',
+        String((RING_C * (1 - (run.restSec ? left / run.restSec : 0))).toFixed(1)));
+      if (left <= 0) apply({ type: 'tick' });
+    }
+  }
+  function startTicking() {
+    if (!run || (run.phase !== 'hold' && run.phase !== 'rest')) return;
+    const id = setInterval(paint, run.phase === 'hold' ? 100 : 250);
+    addTicker(id);
+    paint();
+  }
+
+  /* ---- the five things this screen can look like ---- */
+  function setupView() {
+    const prefs = DB.plankPrefs();
+    const st = DB.plankStats();
+    const best = st.best;
+    const pts = DB.plankProgress();
+    const hist = DB.getPlankSessions();
+
+    const hero = `
+      <div class="card plank-hero">
+        <div class="plank-hero-label">${icons.trophy} Personal best</div>
+        <div class="plank-hero-v">${best ? esc(fmtHold(best.sec)) : '—'}</div>
+        <div class="plank-hero-sub">${best
+          ? `set ${esc(fmtDate(best.at).toLowerCase())}`
+          : 'no plank logged yet — your first hold sets the bar'}</div>
+      </div>`;
+
+    const stats = st.sessions ? `
+      <div class="stat-grid">
+        <div class="card stat"><div class="stat-v">${st.sessions}</div><div class="stat-l">Sessions</div></div>
+        <div class="card stat"><div class="stat-v">${st.totalSets}</div><div class="stat-l">Holds</div></div>
+        <div class="card stat"><div class="stat-v">${esc(fmtDuration(st.totalSec))}</div><div class="stat-l">Total held</div></div>
+        <div class="card stat"><div class="stat-v">${esc(fmtHold(st.last ? st.last.best : 0))}</div><div class="stat-l">Last session best</div></div>
+      </div>` : '';
+
+    const chart = pts.length >= 2 ? `
+      <div class="section-label">Best hold per session</div>
+      <div class="card chart-card plank-spark">${sparkline(pts.map((p) => p.best))}</div>` : '';
+
+    const history = hist.length ? `
+      <div class="section-label">History</div>
+      ${hist.slice(0, 20).map((s) => {
+        const secs = (s.sets || []).map((x) => Number(x.sec) || 0).filter((x) => x > 0);
+        const bestSec = secs.length ? Math.max(...secs) : 0;
+        return `
+        <div class="card hist-row plank-hist-row">
+          <div class="when">
+            <p class="date">${esc(fmtDate(s.t))}</p>
+            <p class="summary">${secs.length} hold${secs.length === 1 ? '' : 's'} · ${esc(secs.map(fmtHold).join(', '))}</p>
+          </div>
+          <div class="dur">${esc(fmtHold(bestSec))}</div>
+          <button class="icon-btn btn-danger plank-del" data-del="${esc(s.id)}" aria-label="Delete">${icons.trash}</button>
+        </div>`;
+      }).join('')}` : '';
+
+    mount(`
+      ${topbar('Plank', {
+        back: '#/',
+        sub: st.sessions ? `${st.sessions} session${st.sessions === 1 ? '' : 's'} logged` : 'hold longer, every time',
+      })}
+      <main class="screen">
+        ${hero}
+        <div class="section-label">Sets</div>
+        <div class="plank-chips">${DB.PLANK_SET_OPTIONS.map((n) =>
+          `<button class="chip-tab${n === prefs.targetSets ? ' on' : ''}" data-sets="${n}">${n}</button>`).join('')}</div>
+        <div class="section-label">Rest between sets</div>
+        <div class="plank-chips">${DB.PLANK_REST_OPTIONS.map((n) =>
+          `<button class="chip-tab${n === prefs.restSec ? ' on' : ''}" data-rest="${n}">${fmtHold(n)}</button>`).join('')}</div>
+        <div class="spacer"></div>
+        <button class="btn btn-primary btn-block plank-cta" id="plank-start">${icons.play} Start plank</button>
+        <div class="spacer"></div><div class="spacer"></div>
+        ${stats}
+        ${chart}
+        ${history}
+        <div class="spacer"></div>
+      </main>
+    `);
+
+    qsa('[data-sets]').forEach((b) => b.addEventListener('click', () => {
+      DB.setPlankPrefs({ targetSets: +b.dataset.sets }); render();
+    }));
+    qsa('[data-rest]').forEach((b) => b.addEventListener('click', () => {
+      DB.setPlankPrefs({ restSec: +b.dataset.rest }); render();
+    }));
+    qsa('[data-del]').forEach((b) => b.addEventListener('click', () => {
+      if (!confirm('Delete this plank session?')) return;
+      DB.deletePlankSession(b.dataset.del); render();
+    }));
+    qs('#plank-start').addEventListener('click', () => {
+      askNotifyPermission(); unlockAudio(); ensurePushSubscribed();
+      run = DB.newPlankRun(DB.plankPrefs(), Date.now());
+      persist();
+      apply({ type: 'start' });
+    });
+  }
+
+  function readyView() {
+    const n = run.setIndex + 1;
+    const best = DB.plankBest();
+    mount(`
+      ${topbar('Plank', { back: '#/', sub: `set ${n} of ${run.targetSets}` })}
+      <main class="screen plank-screen">
+        <div class="plank-stage plank-stage-ready">
+          ${plankDots(run)}
+          <div class="plank-ready-n">Set ${n} <span>of ${run.targetSets}</span></div>
+          <p class="plank-cue">Elbows under shoulders · ribs down · squeeze everything</p>
+          <div class="plank-pb">${best
+            ? `<span>Best</span><b>${esc(fmtHold(best.sec))}</b><span>· beat it</span>`
+            : `<span>First plank — the clock starts empty</span>`}</div>
+          <button class="btn btn-primary plank-cta" id="plank-go">${icons.play} Start set ${n}</button>
+          <button class="btn btn-ghost plank-sub" id="plank-finish">Finish session</button>
+        </div>
+      </main>
+    `);
+    qs('#plank-go').addEventListener('click', () => apply({ type: 'start' }));
+    qs('#plank-finish').addEventListener('click', () => apply({ type: 'finish' }));
+  }
+
+  function holdView() {
+    mount(`
+      ${topbar('Holding', { back: '#/', sub: `set ${run.setIndex + 1} of ${run.targetSets}` })}
+      <main class="screen plank-screen">
+        <div class="plank-stage plank-stage-hold">
+          ${plankDots(run)}
+          ${plankRing(0)}
+          <div class="plank-pb" id="plank-pb"></div>
+          <button class="btn btn-primary plank-cta" id="plank-stop">${icons.check} Done — stop the clock</button>
+          <button class="btn btn-ghost plank-sub" id="plank-cancel">Cancel this set</button>
+        </div>
+      </main>
+    `);
+    qs('#plank-stop').addEventListener('click', () => apply({ type: 'stop' }));
+    qs('#plank-cancel').addEventListener('click', () => apply({ type: 'cancel' }));
+  }
+
+  function restView() {
+    mount(`
+      ${topbar('Rest', { back: '#/', sub: `next: set ${run.setIndex + 1} of ${run.targetSets}` })}
+      <main class="screen plank-screen">
+        <div class="plank-stage plank-stage-rest">
+          ${plankDots(run)}
+          ${plankRing(1, 'resting')}
+          <p class="plank-cue">Shake it out. Next up — set ${run.setIndex + 1} of ${run.targetSets}</p>
+          <div class="plank-rest-btns">
+            <button class="btn" id="plank-rest-sub">−15s</button>
+            <button class="btn" id="plank-rest-add">+15s</button>
+          </div>
+          <button class="btn btn-primary plank-cta" id="plank-skip-rest">I'm ready — skip rest</button>
+          <button class="btn btn-ghost plank-sub" id="plank-finish">Finish session</button>
+        </div>
+      </main>
+    `);
+    qs('#plank-rest-sub').addEventListener('click', () => { apply({ type: 'nudgeRest', delta: -15 }); });
+    qs('#plank-rest-add').addEventListener('click', () => { apply({ type: 'nudgeRest', delta: 15 }); });
+    qs('#plank-skip-rest').addEventListener('click', () => apply({ type: 'skipRest' }));
+    qs('#plank-finish').addEventListener('click', () => apply({ type: 'finish' }));
+  }
+
+  function doneView() {
+    const secs = run.sets.map((s) => s.sec);
+    const total = secs.reduce((a, b) => a + b, 0);
+    const bestOfRun = secs.length ? Math.max(...secs) : 0;
+    mount(`
+      ${topbar('Plank done', { back: '#/', sub: `${secs.length} hold${secs.length === 1 ? '' : 's'}` })}
+      <main class="screen plank-screen">
+        <div class="plank-stage plank-summary">
+          ${run.pbSec ? `<div class="plank-pb-banner">${icons.trophy}<b>New personal best</b><span>${esc(fmtHold(run.pbSec))}</span><i class="plank-spark-burst"></i></div>` : ''}
+          ${!run.pbSec && run.firstEver ? `<div class="plank-pb-banner first">${icons.trophy}<b>First plank on the board</b><span>${esc(fmtHold(bestOfRun))} to beat</span></div>` : ''}
+          ${secs.length ? `
+          <div class="card plank-totals">
+            <div><div class="stat-l">Best hold</div><div class="stat-v">${esc(fmtHold(bestOfRun))}</div></div>
+            <div><div class="stat-l">Total</div><div class="stat-v">${esc(fmtHold(total))}</div></div>
+            <div><div class="stat-l">Holds</div><div class="stat-v">${secs.length}</div></div>
+          </div>
+          <div class="card">
+            ${run.sets.map((s, i) => `
+              <div class="kv plank-summary-set">
+                <span>Set ${i + 1}</span>
+                <b${s.sec === bestOfRun ? ' class="top"' : ''}>${esc(fmtHold(s.sec))}</b>
+              </div>`).join('')}
+          </div>` : `<div class="empty"><p>No holds logged this time.</p></div>`}
+          <button class="btn btn-primary plank-cta" id="plank-more">${icons.plus} One more set</button>
+          <button class="btn btn-block" id="plank-done">Done</button>
+          <div class="spacer"></div>
+        </div>
+      </main>
+    `);
+    qs('#plank-more').addEventListener('click', () => apply({ type: 'addSet' }));
+    qs('#plank-done').addEventListener('click', () => {
+      run = null; DB.setPlankActive(null); cancelServerRestAlert(); releaseWakeLock(); render();
+    });
+  }
+
+  function render() {
+    clearTickers();
+    if (!run) return setupView();
+    if (run.phase === 'hold') holdView();
+    else if (run.phase === 'rest') restView();
+    else if (run.phase === 'done') doneView();
+    else readyView();
+    startTicking();
+  }
+
+  // Keep the screen on while holding/resting, and recompute the instant the app
+  // comes back — both clocks are timestamp-based, so they self-correct.
+  const onVis = () => {
+    if (document.visibilityState === 'visible') {
+      if (run && (run.phase === 'hold' || run.phase === 'rest')) acquireWakeLock();
+      stopHum(); mediaSession(false);
+      const resumed = DB.plankResume(run, Date.now());
+      if (resumed !== run) { run = resumed; persist(); if (run.lastEvent === 'restDone') restDone(); render(); }
+      else paint();
+    } else if (run && run.phase === 'rest' && DB.plankRestSec(run, Date.now()) > 0) {
+      unlockAudio(); startHum(); mediaSession(true); // keeps the rest alarm alive when backgrounded
+    }
+  };
+  document.addEventListener('visibilitychange', onVis);
+  onLeaveScreen(() => {
+    document.removeEventListener('visibilitychange', onVis);
+    releaseWakeLock(); stopHum(); mediaSession(false);
+  });
+  if (run && (run.phase === 'hold' || run.phase === 'rest')) acquireWakeLock();
+  render();
+}
+
+/* ============================================================
    Consistency heatmap (last 13 weeks, Mon-top columns) —
    one shared component, rendered on Home and Insights
    ============================================================ */
@@ -1733,16 +2133,25 @@ function screenSettings() {
 /* ============================================================
    Router
    ============================================================ */
+let lastHash = null;
 function router() {
   clearTickers();
   runLeave();
   const hash = location.hash || '#/';
+  // A new screen starts at the top. Without this, opening something from the
+  // bottom of a long list (the plank card under the plans) renders the next
+  // screen already scrolled halfway down. Screens that re-render themselves in
+  // place — the weight chart, the live workout — don't come through here, so
+  // their scroll position is untouched.
+  if (lastHash !== null && hash !== lastHash) window.scrollTo(0, 0);
+  lastHash = hash;
   const parts = hash.replace(/^#\//, '').split('/'); // ["plan","<id>","run"]
 
   if (hash === '#/' || hash === '' || hash === '#') return screenHome();
   if (parts[0] === 'history') return screenHistory(null);
   if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'weight') return screenWeight();
+  if (parts[0] === 'plank') return screenPlank();
   if (parts[0] === 'session') return screenSession(parts[1]);
   if (parts[0] === 'exercise') return screenExercise(decodeURIComponent(parts.slice(1).join('/')));
   if (parts[0] === 'settings') return screenSettings();

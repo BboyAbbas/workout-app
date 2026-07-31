@@ -11,6 +11,8 @@ const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
 const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
 const KEY_WEIGHTS = 'wt_weights_v1'; // body-weight log {entries:[{id,t,kg,note}], targetKg, heightCm}
+const KEY_PLANKS = 'wt_planks_v1'; // plank trainer {sessions:[{id,t,sets:[{sec,at}]}], targetSets, restSec}
+const KEY_PLANK_ACTIVE = 'wt_plank_active_v1'; // in-progress plank run, survives refresh (device-local, never synced)
 const KEY_EXTRA = 'wt_remote_extra_v1'; // synced fields this app version doesn't know (see applyRemote)
 const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
@@ -26,7 +28,7 @@ function read(key, fallback) {
 function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   // mark data dirty + notify the sync layer when plans/sessions change
-  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS) {
+  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS || key === KEY_PLANKS) {
     localStorage.setItem(KEY_UPDATED, String(Date.now()));
     if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
   }
@@ -41,7 +43,7 @@ export function markDirty() { localStorage.setItem(KEY_UPDATED, String(Date.now(
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
    understand. */
-const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal', 'weights'];
+const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal', 'weights', 'planks'];
 
 /** The full syncable dataset (what gets pushed to / pulled from the cloud). */
 export function snapshot() {
@@ -51,6 +53,7 @@ export function snapshot() {
     sessions: read(KEY_SESSIONS, []),
     goal: getGoal(),
     weights: read(KEY_WEIGHTS, null),
+    planks: read(KEY_PLANKS, null),
   };
 }
 /** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
@@ -65,6 +68,10 @@ export function applyRemote(data, ts) {
     if (data.weights) localStorage.setItem(KEY_WEIGHTS, JSON.stringify(data.weights));
     else localStorage.removeItem(KEY_WEIGHTS);
   }
+  if (data && 'planks' in data) {
+    if (data.planks) localStorage.setItem(KEY_PLANKS, JSON.stringify(data.planks));
+    else localStorage.removeItem(KEY_PLANKS);
+  }
   const extra = {};
   for (const k of Object.keys(data || {})) if (!KNOWN_SYNC_FIELDS.includes(k)) extra[k] = data[k];
   localStorage.setItem(KEY_EXTRA, JSON.stringify(extra));
@@ -77,7 +84,7 @@ export function applyRemote(data, ts) {
    the cloud doc's updatedAt moves again, because a pull at the same timestamp
    is treated as already applied (bit us 2026-07-25: 226 weight entries pulled
    by the previous app version sat parked while the weight screen showed empty). */
-const FIELD_STORES = { plans: KEY_PLANS, sessions: KEY_SESSIONS, goal: KEY_GOAL, weights: KEY_WEIGHTS };
+const FIELD_STORES = { plans: KEY_PLANS, sessions: KEY_SESSIONS, goal: KEY_GOAL, weights: KEY_WEIGHTS, planks: KEY_PLANKS };
 (function adoptParkedFields() {
   try {
     const extra = read(KEY_EXTRA, null);
@@ -156,6 +163,292 @@ export function weightAt(entries, t) {
     }
   }
   return last.kg;
+}
+
+/* ---------- plank trainer ----------
+   Planks are a HOLD, not a lift: one number per set (seconds) and a single
+   all-time record to chase. They live in their own store — never in `plans` or
+   `sessions` — so the up-next rotation and the strength analytics cannot see
+   them at all. Same shape as the weight log: one doc, own sync field, unknown
+   sub-fields preserved. */
+export const PLANK_DEFAULTS = { targetSets: 3, restSec: 60 };
+export const PLANK_SET_OPTIONS = [1, 2, 3, 4, 5];
+export const PLANK_REST_OPTIONS = [30, 45, 60, 90, 120];
+export const MIN_PLANK_SEC = 1; // below this it was a mis-tap, not a plank
+
+const okSets = (n) => Number.isFinite(n) && n >= 1 && n <= 10;
+const okRest = (n) => Number.isFinite(n) && n >= 0 && n <= 600;
+
+export function getPlanks() {
+  const raw = read(KEY_PLANKS, null);
+  const p = raw && typeof raw === 'object' ? raw : {};
+  const ts = Number(p.targetSets), rs = Number(p.restSec);
+  return {
+    ...p, // a newer version's extra sub-fields ride along untouched
+    sessions: Array.isArray(p.sessions) ? p.sessions : [],
+    targetSets: okSets(ts) ? Math.round(ts) : PLANK_DEFAULTS.targetSets,
+    restSec: okRest(rs) ? Math.round(rs) : PLANK_DEFAULTS.restSec,
+  };
+}
+function savePlanks(p) {
+  p.sessions.sort((a, b) => a.t - b.t);
+  write(KEY_PLANKS, p);
+}
+
+/** Sets + rest the trainer opens with (whatever was used last time). */
+export function plankPrefs() {
+  const p = getPlanks();
+  return { targetSets: p.targetSets, restSec: p.restSec };
+}
+export function setPlankPrefs({ targetSets, restSec } = {}) {
+  const p = getPlanks();
+  const ts = Number(targetSets), rs = Number(restSec);
+  let changed = false;
+  if (okSets(ts)) { p.targetSets = Math.round(ts); changed = true; }
+  if (okRest(rs)) { p.restSec = Math.round(rs); changed = true; }
+  if (changed) savePlanks(p);
+  return { targetSets: p.targetSets, restSec: p.restSec };
+}
+
+/**
+ * Save ONE finished hold, the instant it finishes — never batched at the end of
+ * the session. An abandoned run therefore keeps every set that was actually
+ * held, and a crash/reload can lose at most the hold still in progress.
+ * Seconds are FLOORED, so a hold is never credited with time it didn't reach,
+ * and anything under a second is a mis-tap: not stored, not a record, ignored.
+ * Returns {session, set} or null when nothing was recorded.
+ */
+export function recordPlankSet(sessionId, sec, { at = Date.now(), targetSets = null, restSec = null } = {}) {
+  const n = Math.floor(Number(sec));
+  if (!Number.isFinite(n) || n < MIN_PLANK_SEC) return null;
+  const p = getPlanks();
+  let s = p.sessions.find((x) => x && x.id === sessionId);
+  if (!s) {
+    s = { id: sessionId, t: at, sets: [] };
+    if (okSets(Number(targetSets))) s.targetSets = Math.round(Number(targetSets));
+    if (okRest(Number(restSec))) s.restSec = Math.round(Number(restSec));
+    p.sessions.push(s);
+  }
+  if (!Array.isArray(s.sets)) s.sets = [];
+  const set = { sec: n, at };
+  s.sets.push(set);
+  s.endedAt = at;
+  savePlanks(p);
+  return { session: s, set };
+}
+
+export function deletePlankSession(id) {
+  const p = getPlanks();
+  p.sessions = p.sessions.filter((s) => s && s.id !== id);
+  savePlanks(p);
+}
+
+/** Plank sessions, newest first (what the history list shows). */
+export function getPlankSessions() {
+  return [...getPlanks().sessions].sort((a, b) => b.t - a.t);
+}
+
+/** The longest single hold ever, or null. This is THE number the trainer chases. */
+export function plankBest() {
+  let best = null;
+  for (const s of getPlanks().sessions) {
+    for (const set of (s.sets || [])) {
+      const sec = Number(set && set.sec) || 0;
+      if (sec > 0 && (!best || sec > best.sec)) best = { sec, at: Number(set.at) || s.t, sessionId: s.id };
+    }
+  }
+  return best;
+}
+
+/** Would this hold beat the record? MUST be asked BEFORE recording it.
+ *  The first plank ever isn't a "new best" — there was nothing to beat. */
+export function isPlankPB(sec) {
+  const n = Math.floor(Number(sec));
+  if (!Number.isFinite(n) || n < MIN_PLANK_SEC) return false;
+  const b = plankBest();
+  return !!b && n > b.sec;
+}
+
+/** One point per session, OLDEST first — the progress curve. */
+export function plankProgress() {
+  return [...getPlanks().sessions]
+    .sort((a, b) => a.t - b.t)
+    .map((s) => {
+      const secs = (s.sets || []).map((x) => Number(x && x.sec) || 0).filter((x) => x > 0);
+      return {
+        id: s.id, t: s.t,
+        best: secs.length ? Math.max(...secs) : 0,
+        total: secs.reduce((a, b) => a + b, 0),
+        sets: secs.length,
+      };
+    })
+    .filter((p) => p.sets > 0);
+}
+
+/* ---------- the plank run: hold / rest / next-set state machine ----------
+   Pure and timestamp-driven: every phase stores an ABSOLUTE time, never an
+   accumulated counter, so a locked screen, a backgrounded tab or a full reload
+   cannot make the clock drift. `now` is passed in, so the whole flow —
+   including "what happens if the app was away for four minutes" — is testable
+   without a browser. Nothing here touches storage; the screen persists the
+   returned state and records finished holds itself. */
+export const PLANK_ABANDON_MS = 30 * 60 * 1000; // a "hold" left running this long wasn't one
+
+export function newPlankRun({ targetSets, restSec } = {}, now = Date.now()) {
+  const ts = Number(targetSets), rs = Number(restSec);
+  return {
+    id: uid(),
+    phase: 'ready',
+    setIndex: 0,
+    targetSets: okSets(ts) ? Math.round(ts) : PLANK_DEFAULTS.targetSets,
+    restSec: okRest(rs) ? Math.round(rs) : PLANK_DEFAULTS.restSec,
+    startAt: 0,
+    restEndAt: 0,
+    sets: [],
+    lastEvent: null,
+    createdAt: now,
+  };
+}
+
+/** Seconds held so far in the running set (floored — never credit unheld time). */
+export function plankHoldSec(run, now = Date.now()) {
+  if (!run || run.phase !== 'hold' || !run.startAt) return 0;
+  return Math.max(0, Math.floor((now - run.startAt) / 1000));
+}
+/** Seconds left of the rest countdown (0 when not resting / already over). */
+export function plankRestSec(run, now = Date.now()) {
+  if (!run || run.phase !== 'rest' || !run.restEndAt) return 0;
+  return Math.max(0, Math.round((run.restEndAt - now) / 1000));
+}
+
+export function plankStep(run, action, now = Date.now()) {
+  if (!run || !action) return run;
+  const r = { ...run, sets: [...run.sets], lastEvent: null };
+  switch (action.type) {
+    case 'start':
+      if (r.phase === 'hold') return run;
+      r.phase = 'hold'; r.startAt = now; r.restEndAt = 0;
+      return r;
+
+    case 'stop': {
+      if (r.phase !== 'hold') return run;
+      const sec = plankHoldSec(run, now);
+      r.startAt = 0;
+      if (sec < MIN_PLANK_SEC) { // a mis-tap, not a plank: nothing recorded, same set
+        r.phase = 'ready'; r.restEndAt = 0; r.lastEvent = 'discarded';
+        return r;
+      }
+      r.sets.push({ sec, at: now });
+      r.setIndex = r.setIndex + 1;
+      r.lastEvent = 'recorded';
+      if (r.setIndex >= r.targetSets) { r.phase = 'done'; r.restEndAt = 0; return r; }
+      if (r.restSec > 0) { r.phase = 'rest'; r.restEndAt = now + r.restSec * 1000; return r; }
+      r.phase = 'ready'; r.restEndAt = 0;
+      return r;
+    }
+
+    case 'cancel': // deliberately bin a hold in progress
+      if (r.phase !== 'hold') return run;
+      r.phase = 'ready'; r.startAt = 0; r.restEndAt = 0; r.lastEvent = 'cancelled';
+      return r;
+
+    case 'skipRest':
+      if (r.phase !== 'rest') return run;
+      r.phase = 'ready'; r.restEndAt = 0;
+      return r;
+
+    case 'nudgeRest': {
+      if (r.phase !== 'rest') return run;
+      const d = Number(action.delta) || 0;
+      r.restEndAt = Math.max(now + 1000, r.restEndAt + d * 1000); // never into the past
+      return r;
+    }
+
+    case 'tick': // the rest ran out (on screen, or while the phone was away)
+      if (r.phase !== 'rest' || plankRestSec(run, now) > 0) return run;
+      r.phase = 'ready'; r.restEndAt = 0; r.lastEvent = 'restDone';
+      return r;
+
+    case 'addSet': // "one more" from the summary — keeps the same session
+      r.targetSets = Math.min(10, r.targetSets + 1);
+      r.phase = 'ready'; r.startAt = 0; r.restEndAt = 0;
+      return r;
+
+    case 'finish': // end early, keeping every hold already recorded
+      r.phase = 'done'; r.startAt = 0; r.restEndAt = 0;
+      return r;
+
+    default:
+      return run;
+  }
+}
+
+/**
+ * Re-enter a run persisted before a reload / background. A hold still inside the
+ * plausible window keeps counting (the phone screen sleeping mid-plank is normal);
+ * one left running past PLANK_ABANDON_MS was the app being left open, not a plank,
+ * so it is dropped and NOTHING is recorded for it. A rest that expired meanwhile
+ * simply opens the next set.
+ */
+export function plankResume(run, now = Date.now()) {
+  if (!run) return run;
+  if (run.phase === 'hold') {
+    if (!run.startAt || now - run.startAt > PLANK_ABANDON_MS) {
+      return { ...run, phase: 'ready', startAt: 0, restEndAt: 0, lastEvent: 'abandoned' };
+    }
+    return run;
+  }
+  if (run.phase === 'rest' && plankRestSec(run, now) <= 0) {
+    return { ...run, phase: 'ready', restEndAt: 0, lastEvent: 'restDone' };
+  }
+  return run;
+}
+
+/* ---------- device-local in-progress plank run (never synced) ---------- */
+export function getPlankActive() { return read(KEY_PLANK_ACTIVE, null); }
+export function setPlankActive(run) {
+  if (run) localStorage.setItem(KEY_PLANK_ACTIVE, JSON.stringify(run));
+  else localStorage.removeItem(KEY_PLANK_ACTIVE);
+}
+
+/**
+ * Union a remote plank doc with the local one, for the pull path in sync.js —
+ * the same "local work that never reached the cloud must survive" rule the
+ * session and weight lists follow. Sessions merge by id, and sets merge WITHIN
+ * a shared session (two devices can each add a hold to the same run), keyed by
+ * duration+timestamp so re-pulling the same doc never duplicates a hold.
+ * Only ever called when local has unpushed changes, so an untouched local copy
+ * still lets a deletion made on another device stick.
+ */
+export function mergePlankDoc(remote, local) {
+  const l = local && typeof local === 'object' && Array.isArray(local.sessions) ? local : null;
+  if (!l || !l.sessions.length) return remote || null;
+  if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) return l;
+  const out = { ...remote, sessions: remote.sessions.map((s) => ({ ...s, sets: [...(s.sets || [])] })) };
+  const byId = new Map(out.sessions.map((s) => [s.id, s]));
+  const setKey = (x) => `${Number(x && x.sec) || 0}@${Number(x && x.at) || 0}`;
+  for (const ls of l.sessions) {
+    if (!ls || !ls.id) continue;
+    const rs = byId.get(ls.id);
+    if (!rs) { out.sessions.push({ ...ls, sets: [...(ls.sets || [])] }); continue; }
+    const have = new Set((rs.sets || []).map(setKey));
+    for (const set of (ls.sets || [])) if (!have.has(setKey(set))) { rs.sets.push(set); have.add(setKey(set)); }
+    rs.sets.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+  }
+  out.sessions.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/** Headline numbers for the trainer screen. */
+export function plankStats() {
+  const pts = plankProgress();
+  return {
+    sessions: pts.length,
+    totalSets: pts.reduce((a, p) => a + p.sets, 0),
+    totalSec: pts.reduce((a, p) => a + p.total, 0),
+    best: plankBest(),
+    last: pts.length ? pts[pts.length - 1] : null,
+  };
 }
 
 /* ---------- plans ---------- */
@@ -331,7 +624,7 @@ export function getSessionsForPlan(planId) {
 /** A plan is cardio-only when every exercise is a cardio kind (a lifting plan
  *  with a cardio finisher does NOT count). Cardio is done spontaneously, so
  *  these plans stay out of the up-next rotation entirely. */
-function isCardioPlan(p) {
+export function isCardioPlan(p) {
   return !!(p && p.exercises && p.exercises.length && p.exercises.every(isCardio));
 }
 /** The plan that's up next: the one after the most recently trained plan in
@@ -611,18 +904,27 @@ export function muscleFor(name) {
 
 /* ---------- export / import (backup) ---------- */
 export function exportAll() {
+  // Everything that syncs, so a backup can't silently drop a record the app
+  // still shows (weigh-ins, the goal, plank PBs) — importAll only applies the
+  // keys it finds, so an older backup without them still restores fine.
   return JSON.stringify(
-    { plans: getPlans(), sessions: read(KEY_SESSIONS, []), v: 1 },
+    {
+      plans: getPlans(), sessions: read(KEY_SESSIONS, []),
+      weights: read(KEY_WEIGHTS, null), goal: getGoal(), planks: read(KEY_PLANKS, null),
+      v: 1,
+    },
     null,
     2
   );
 }
-/** Wipe ALL local data (plans, history, in-progress workout) on this device.
- *  Marks the change so the empty state also syncs to the cloud. */
+/** Wipe ALL local data (plans, history, planks, in-progress workout) on this
+ *  device. Marks the change so the empty state also syncs to the cloud. */
 export function resetAll() {
   localStorage.removeItem(KEY_PLANS);
   localStorage.removeItem(KEY_SESSIONS);
   localStorage.removeItem(KEY_ACTIVE);
+  localStorage.removeItem(KEY_PLANKS);
+  localStorage.removeItem(KEY_PLANK_ACTIVE);
   localStorage.setItem(KEY_UPDATED, String(Date.now()));
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
@@ -638,4 +940,8 @@ export function importAll(json) {
     ? data.sessions.filter((s) => s && Array.isArray(s.entries)) : [];
   if (plans.length) write(KEY_PLANS, plans);
   if (sessions.length) write(KEY_SESSIONS, sessions);
+  // Newer backup fields: applied only when present, so an old file still works.
+  if (data.weights && Array.isArray(data.weights.entries)) write(KEY_WEIGHTS, data.weights);
+  if (data.goal && typeof data.goal === 'object') write(KEY_GOAL, data.goal);
+  if (data.planks && Array.isArray(data.planks.sessions)) write(KEY_PLANKS, data.planks);
 }

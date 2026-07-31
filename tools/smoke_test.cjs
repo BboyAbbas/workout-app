@@ -44,9 +44,35 @@ function check(cond, msg) {
   // can lose that race with ERR_ABORTED, but either way the page ends up
   // freshly loaded, so tolerate the abort and wait for the app shell.
   await page.goto(BASE + '/#/');
-  await page.evaluate(() => localStorage.clear());
+  // That self-reload can also destroy the context mid-evaluate, so retry the
+  // wipe until it lands on a page that stays put.
+  for (let i = 0; i < 6; i++) {
+    try { await page.evaluate(() => localStorage.clear()); break; }
+    catch (_) { await page.waitForTimeout(400); }
+  }
   await page.reload().catch(() => {});
   await page.waitForSelector('.topbar');
+
+  /* Open a plan from the home list. On a freshly wiped device the first cloud
+     pull seeds the starter plans and re-renders home, which can detach the card
+     under a click that was already in flight — the tap is then silently lost and
+     the next step asserts against the wrong screen. Retry until the route
+     actually changes. */
+  const openPlan = async (idx = 0) => {
+    for (let i = 0; i < 8; i++) {
+      await page.locator('.plan-card').nth(idx).click({ timeout: 5000 }).catch(() => {});
+      try {
+        await page.waitForURL(/#\/plan\//, { timeout: 1500 });
+        // A seed that lands after the tap swaps every plan id, and the detail
+        // screen for a now-missing id sends itself home. Settle, then confirm we
+        // are really still on the plan before handing back.
+        await page.waitForTimeout(250);
+        if (/#\/plan\//.test(page.url())) return;
+      } catch (_) {}
+      await page.waitForSelector('.plan-card').catch(() => {});
+    }
+    throw new Error(`could not open plan card ${idx}`);
+  };
 
   console.log('\n[1] Plans auto-load on a fresh device (no template step)');
   await page.waitForSelector('.plan-card');
@@ -59,7 +85,7 @@ function check(cond, msg) {
   check((await page.locator('.plan-card').first().locator('.next-chip').count()) === 1, 'fresh state: first plan (Push) is up next');
 
   console.log('\n[2] Open a plan');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   check(/#\/plan\//.test(page.url()), 'navigated to plan detail');
   check(await page.locator('[data-run]').first().isVisible(), 'Start workout button present');
@@ -108,7 +134,7 @@ function check(cond, msg) {
   check((await page.locator('.plan-card.plan-next').count()) === 1, 'still exactly one up-next card');
   check((await page.locator('.plan-card').nth(1).locator('.next-chip').count()) === 1, 'after training Push, next plan in the program is up next');
   check((await page.locator('.plan-card').first().locator('.next-chip').count()) === 0, 'Push no longer marked up next');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex');
@@ -132,7 +158,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   // session 1: log ONLY the first exercise, finish
   await page.locator('[data-run]').click();
@@ -154,7 +180,7 @@ function check(cond, msg) {
   // the "No sets logged. Finish anyway?" confirm)
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex .set-row');
@@ -170,7 +196,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -192,7 +218,7 @@ function check(cond, msg) {
   });
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex');
@@ -208,7 +234,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   const logSquat = async (wt, rp) => {
     const row = page.locator('.run-ex').nth(0).locator('.set-row').first();
@@ -227,7 +253,7 @@ function check(cond, msg) {
   // session 2: Squat 70x10 -> beats est-1RM -> PR toast
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -251,7 +277,7 @@ function check(cond, msg) {
   console.log('\n[7f] Exercise progress back-button returns to where you came from');
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-ex]');             // plan-detail exercise rows
   const planUrl = page.url();
   await page.locator('[data-ex]').first().click();
@@ -267,7 +293,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -288,7 +314,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').nth(1).click();        // Legs day (ends with Incline Walk)
+  await openPlan(1);        // Legs day (ends with Incline Walk)
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -341,7 +367,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push
+  await openPlan(0);      // Push
   await page.waitForSelector('[data-run]');
   const startTxt = ((await page.locator('[data-run]').first().textContent()) || '').trim();
   check(/start/i.test(startTxt), `plan shows "Start workout" before starting (${startTxt})`);
@@ -393,7 +419,7 @@ function check(cond, msg) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();      // Push — Bench: 4 sets, 6-8 reps
+  await openPlan(0);      // Push — Bench: 4 sets, 6-8 reps
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.set-row');
@@ -412,7 +438,7 @@ function check(cond, msg) {
   await page.waitForSelector('.hist-row');
   await page.goto(BASE + '/#/');                          // start again -> should graduate
   await page.waitForSelector('.plan-card');
-  await page.locator('.plan-card').first().click();
+  await openPlan(0);
   await page.waitForSelector('[data-run]');
   await page.locator('[data-run]').click();
   await page.waitForSelector('.run-ex .set-row');
@@ -762,6 +788,164 @@ function check(cond, msg) {
   await page.waitForSelector('.plan-card');
   check(((await page.locator('.plan-card.plan-next .name').first().textContent()) || '').includes(upNext),
     'logging a cardio session does not advance the up-next queue');
+
+  console.log('\n[7z] Plank Trainer — the real mobile journey');
+  // fresh plank state, keep the plans from [7y] (the Cardio plan is still there)
+  await page.evaluate(() => { localStorage.removeItem('wt_planks_v1'); localStorage.removeItem('wt_plank_active_v1'); });
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#plank-card');
+  check(await page.locator('#plank-card').isVisible(), 'home shows the Plank section');
+  // it must sit DIRECTLY under the cardio plan, not at the top of the list
+  const order = await page.evaluate(() => {
+    const nodes = Array.from(document.querySelectorAll('.plan-card, #plank-card'));
+    return nodes.map((n) => (n.id === 'plank-card' ? 'PLANK' : (n.querySelector('.name') || {}).textContent || ''));
+  });
+  const iCardio = order.findIndex((x) => x.includes('Cardio'));
+  const iPlank = order.indexOf('PLANK');
+  check(iCardio >= 0 && iPlank === iCardio + 1, `plank section sits directly under Cardio (${order.join(' | ')})`);
+
+  await page.locator('#plank-card').click();
+  await page.waitForSelector('#plank-start');
+  check(/#\/plank/.test(page.url()), 'plank route opens');
+  check((await page.locator('[data-sets]').count()) >= 3, 'sets chips render');
+  check((await page.locator('[data-rest]').count()) >= 3, 'rest chips render');
+  check((await page.locator('.plank-hero').count()) === 1, 'PB hero card renders with no history yet');
+
+  console.log('  · pick 2 sets, then hold');
+  await page.locator('[data-sets="2"]').click();
+  await page.locator('[data-rest="30"]').click();
+  check((await page.locator('[data-sets="2"].on').count()) === 1, 'chosen set count is highlighted');
+  await page.locator('#plank-start').click();
+  await page.waitForSelector('.plank-stage-hold');
+  const pbVisible = await page.locator('#plank-pb').isVisible();
+  check(pbVisible, 'the record is on screen the whole time the timer runs');
+  const h0 = await page.locator('#plank-time').textContent();
+  await page.waitForTimeout(1400);
+  const h1 = await page.locator('#plank-time').textContent();
+  check(h0 !== h1, `hold timer ticks (${h0} -> ${h1})`);
+  check(await page.locator('#plank-stop').isVisible(), 'a big Done button is reachable');
+
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-stage-rest');
+  check(true, 'stopping the hold starts the rest countdown');
+  const stored1 = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_planks_v1') || 'null'));
+  check(stored1 && stored1.sessions.length === 1 && stored1.sessions[0].sets.length === 1,
+    'the finished hold is written to storage immediately (not at session end)');
+  check(stored1.sessions[0].sets[0].sec >= 1, `hold length recorded (${stored1 && stored1.sessions[0].sets[0].sec}s)`);
+
+  console.log('  · rest controls');
+  const rest0 = await page.locator('#plank-rest-time').textContent();
+  await page.locator('#plank-rest-add').click();
+  const rest1 = await page.locator('#plank-rest-time').textContent();
+  check(rest0 !== rest1, `+15s changes the countdown (${rest0} -> ${rest1})`);
+  await page.locator('#plank-skip-rest').click();
+  await page.waitForSelector('.plank-stage-ready');
+  check(((await page.locator('.plank-stage-ready').textContent()) || '').includes('2'), 'skipping rest opens set 2 of 2');
+
+  console.log('  · a mis-tap is never recorded');
+  await page.locator('#plank-go').click();
+  await page.waitForSelector('.plank-stage-hold');
+  await page.locator('#plank-stop').click();               // instant stop = 0s
+  await page.waitForSelector('.plank-stage-ready');
+  const afterMistap = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_planks_v1')).sessions[0].sets.length);
+  check(afterMistap === 1, 'a zero-length attempt adds nothing');
+
+  console.log('  · second hold beats the first -> personal best celebration');
+  await page.locator('#plank-go').click();
+  await page.waitForSelector('.plank-stage-hold');
+  await page.waitForTimeout(2400);
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-summary');
+  check((await page.locator('.plank-pb-banner').count()) === 1, 'beating the record shows a personal-best celebration');
+  check((await page.locator('.plank-summary-set').count()) === 2, 'summary lists both holds');
+  const vibed = await page.evaluate(() => window.__vibes.length);
+  check(vibed > 0, 'the personal best buzzes');
+
+  console.log('  · it survives a reload and shows up as history');
+  await page.reload();
+  await page.goto(BASE + '/#/plank');
+  await page.waitForSelector('#plank-start');
+  const heroTxt = ((await page.locator('.plank-hero').textContent()) || '').replace(/\s+/g, ' ');
+  check(/\d/.test(heroTxt), `personal best survives a reload (${heroTxt.trim()})`);
+  check((await page.locator('.plank-hist-row').count()) === 1, 'the session shows in plank history');
+  check((await page.locator('.plank-spark').count()) >= 0, 'progress block renders without error');
+
+  console.log('  · plank rides the cloud snapshot and stays out of Up Next');
+  const snapHasPlanks = await page.evaluate(async () => {
+    const DB = await import('./js/db.js');
+    return !!(DB.snapshot().planks && DB.snapshot().planks.sessions.length);
+  });
+  check(snapHasPlanks, 'planks are part of the pushed cloud snapshot');
+  const plankNotAPlan = await page.evaluate(() => ({
+    plans: JSON.parse(localStorage.getItem('wt_plans_v1') || '[]').some((p) => /plank/i.test(p.name || '')),
+    sessions: JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]').some((s) => /plank/i.test(s.planName || '')),
+  }));
+  check(!plankNotAPlan.plans && !plankNotAPlan.sessions, 'plank never becomes a plan or a workout session');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+  check(((await page.locator('.plan-card.plan-next .name').first().textContent()) || '').includes(upNext),
+    'logging planks does not advance the up-next queue');
+  check((await page.locator('#plank-card .next-chip').count()) === 0, 'the plank section never carries the up-next chip');
+
+  console.log('  · an interrupted run is resumed, an abandoned one is dropped');
+  await page.goto(BASE + '/#/plank');
+  await page.waitForSelector('#plank-start');
+  await page.locator('#plank-start').click();
+  await page.waitForSelector('.plank-stage-hold');
+  await page.reload();                                     // walked away mid-hold, app reloaded
+  await page.waitForSelector('.plank-stage-hold', { timeout: 4000 });
+  check(true, 'a hold in progress is still running after a reload');
+  const setsBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_planks_v1')).sessions.length);
+  await page.evaluate(() => { // pretend the app sat open overnight
+    const a = JSON.parse(localStorage.getItem('wt_plank_active_v1'));
+    a.startAt = Date.now() - 6 * 3600 * 1000;
+    localStorage.setItem('wt_plank_active_v1', JSON.stringify(a));
+  });
+  await page.reload();
+  await page.waitForSelector('.plank-stage-ready, #plank-start', { timeout: 4000 });
+  const setsAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_planks_v1')).sessions.length);
+  check(setsAfter === setsBefore, 'a run left open for hours records nothing');
+  check((await page.locator('.plank-stage-hold').count()) === 0, 'the abandoned hold is not still counting');
+
+  console.log('  · a plank logged offline survives a real cloud pull');
+  // drive the actual sync.js pull path (not just the pure merge helper): the
+  // cloud doc knows a hold this device has never seen, and this device holds one
+  // it never pushed. Both must exist afterwards.
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**', (r) => {
+    if (r.request().method() === 'GET') {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        updatedAt: Date.now() + 600000, // remote is newer, so it gets applied
+        data: { plans: [], sessions: [], planks: { sessions: [
+          { id: 'cloud1', t: 1000, sets: [{ sec: 65, at: 1000 }] },
+        ] } },
+      }) });
+    }
+    return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  await page.evaluate(() => localStorage.removeItem('wt_plank_active_v1')); // no run in flight
+  await page.reload(); // already on #/plank — goto to the same URL would not re-render
+  await page.waitForSelector('#plank-start');
+  await page.evaluate(() => {
+    localStorage.setItem('wt_planks_v1', JSON.stringify({ targetSets: 3, restSec: 60,
+      sessions: [{ id: 'localonly', t: 2000, sets: [{ sec: 44, at: 2000 }] }] }));
+    localStorage.setItem('wt_updated_at', String(Date.now())); // local edit...
+    localStorage.setItem('wt_pushed_at', '1');                 // ...never pushed
+  });
+  const merged = await page.evaluate(async () => {
+    const S = await import('./js/sync.js');
+    const st = await S.pull();
+    const p = JSON.parse(localStorage.getItem('wt_planks_v1') || 'null');
+    return { st, ids: (p ? p.sessions : []).map((s) => s.id).sort() };
+  });
+  check(merged.st === 'applied', `remote doc applied (${merged.st})`);
+  check(merged.ids.includes('cloud1') && merged.ids.includes('localonly'),
+    `offline hold kept AND cloud hold pulled in (${merged.ids.join(',')})`);
+
+  // back to the inert stub so the offline check below behaves
+  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+    (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

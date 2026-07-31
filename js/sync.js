@@ -25,6 +25,11 @@ let pulling = false;
 function headers() {
   return { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' };
 }
+/** How many plank holds a cloud doc's plank field holds (0 when it has none). */
+function countPlankSets(doc) {
+  if (!doc || !Array.isArray(doc.sessions)) return 0;
+  return doc.sessions.reduce((n, s) => n + ((s && s.sets) || []).length, 0);
+}
 function url() { return `${ENDPOINT}?id=${encodeURIComponent(USER_ID)}`; }
 
 /** Pull remote; if it's newer than local, apply it and re-render.
@@ -73,6 +78,15 @@ export async function pull() {
           } else if (!data.weights) {
             data.weights = mineW; mergedIn += mineW.entries.length;
           }
+        }
+        // same union for plank holds recorded offline. Merging happens per SET,
+        // not just per session, so a hold added here and a hold added on another
+        // device inside the same plank run both survive.
+        const mineP = local.planks;
+        if (mineP && Array.isArray(mineP.sessions) && mineP.sessions.length) {
+          const before = countPlankSets(data.planks);
+          data.planks = DB.mergePlankDoc(data.planks, mineP);
+          mergedIn += Math.max(0, countPlankSets(data.planks) - before);
         }
       }
       DB.applyRemote(data, remote.updatedAt);
