@@ -627,7 +627,12 @@ function screenRun(planId) {
   let elapsedId = null; // single elapsed ticker, replaced (not stacked) each render
   let activeSel = firstPending(); // the set the one pinned Log button will save
 
-  function persist() { DB.setActive(active); }
+  // Every persist here IS user activity, so stamp the time on the way out.
+  // Without this, writing the screen's long-lived `active` object overwrote the
+  // fresher `lastActivityAt` that touchActive() had put in storage, and the idle
+  // auto-finish then dated the workout's end to whenever this screen was last
+  // opened — reporting a 30-minute session as ~7m.
+  function persist() { active.lastActivityAt = Date.now(); DB.setActive(active); }
 
   // first not-yet-logged set, scanning exercises in order (null if all done)
   function firstPending() {
@@ -984,6 +989,8 @@ function screenRun(planId) {
       return;
     }
     s.done = true;
+    s.doneAt = Date.now();
+    active.lastSetAt = s.doneAt; // real training end for an auto-finished workout
     persist();
     const restSecs = en.rest != null ? en.rest : DB.DEFAULT_REST; // cardio rest 0 -> no timer
     if (restSecs > 0) startRest(restSecs, exId);
@@ -2205,7 +2212,11 @@ function finalizeStaleWorkout() {
   cancelWorkoutWatchdog();
   const entries = DB.buildSessionEntries(a);
   if (entries.length) {
-    const endedAt = a.lastActivityAt || a.startedAt; // ended at the last real activity, not "now"
+    // End the workout at the LAST LOGGED SET — the only timestamp that means
+    // real training. Tapping around afterwards (or a screen left open on a
+    // machine) must not stretch the duration. lastActivityAt is the fallback for
+    // workouts started before sets carried a time.
+    const endedAt = a.lastSetAt || a.lastActivityAt || a.startedAt;
     const setCount = entries.reduce((n, e) => n + e.sets.length, 0);
     DB.addSession({
       id: DB.uid(), planId: a.planId, planName: a.planName,

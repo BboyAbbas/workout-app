@@ -531,11 +531,19 @@ function check(cond, msg) {
     await page.waitForTimeout(120);
     const skip = page.locator('#rest-skip'); if (await skip.count()) await skip.click().catch(() => {});
   }
-  // pretend the workout has sat idle for 51 minutes, then bring the app to the foreground
+  // The set just logged must have carried its own timestamp — that is what the
+  // auto-finish measures to.
+  check(await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_active_v1'));
+    return !!a.lastSetAt && Math.abs(a.lastSetAt - a.lastActivityAt) < 5000;
+  }), 'logging a set stamps lastSetAt (and persist() keeps lastActivityAt fresh)');
+  // Abbas's real case: 30 minutes of training, then 30 more minutes in the app
+  // without logging (treadmill, forgot to press Finish), then 51 minutes idle.
   await page.evaluate(() => {
     const a = JSON.parse(localStorage.getItem('wt_active_v1'));
-    a.lastActivityAt = Date.now() - 51 * 60 * 1000;
-    a.startedAt = Date.now() - 60 * 60 * 1000;
+    a.startedAt = Date.now() - 111 * 60 * 1000;
+    a.lastSetAt = Date.now() - 81 * 60 * 1000;      // last real set: 30 min in
+    a.lastActivityAt = Date.now() - 51 * 60 * 1000; // last tap: 30 min later
     localStorage.setItem('wt_active_v1', JSON.stringify(a));
     window.dispatchEvent(new Event('focus'));
   });
@@ -551,8 +559,10 @@ function check(cond, msg) {
     const ent = ((af.sessions[0] && af.sessions[0].entries) || []).find((e) => e.name === 'Lat Pulldown');
     check(!!ent && ent.sets.length === 1 && ent.sets[0].reps === 10 && ent.sets[0].weight === 50,
       'saved session keeps the logged set (Lat Pulldown 50x10)');
-    check((af.sessions[0] && af.sessions[0].endedAt) < af.now - 50 * 60 * 1000,
-      'session end time = last activity (~51 min ago), not "now"');
+    const dur = Math.round(((af.sessions[0] || {}).durationSec || 0) / 60);
+    check((af.sessions[0] && af.sessions[0].endedAt) < af.now - 80 * 60 * 1000,
+      'session end time = the LAST LOGGED SET (~81 min ago), not "now" and not the last tap');
+    check(dur === 30, `auto-ended duration = training time only (got ${dur}m, want 30m)`);
   }
 
   console.log('\n[7o] Idle auto-finish: a workout with NO logged sets is cleared, not saved');
