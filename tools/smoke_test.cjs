@@ -588,6 +588,83 @@ function check(cond, msg) {
   check(emptyAf.active === null, 'empty workout was cleared');
   check(emptyAf.sessions.length === 0, 'empty workout saved no session');
 
+  console.log('\n[7s] History editing: add the cardio you forgot, fix the duration');
+  await page.goto(BASE + '/#/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('.plan-card');
+  await page.locator('.plan-card').filter({ hasText: 'Push' }).first().click();
+  await page.waitForSelector('[data-run]');
+  await page.locator('[data-run]').click();
+  await page.waitForSelector('.set-row');
+  {
+    const row = page.locator('.run-ex').nth(0).locator('.set-row').nth(0);   // Bench Press, set 1
+    await row.locator('[data-f="weight"]').fill('60');
+    await row.locator('[data-f="reps"]').fill('8');
+    await row.locator('[data-f="reps"]').click();
+    await page.locator('#logbtn').click();
+    await page.waitForTimeout(120);
+    const skip = page.locator('#rest-skip'); if (await skip.count()) await skip.click().catch(() => {});
+  }
+  await page.locator('#finish').click();          // the "cardio not logged" confirm is auto-accepted
+  await page.waitForSelector('.hist-row');
+  await page.locator('.hist-row').first().click();
+  await page.waitForSelector('#edit-session');
+  check((await page.locator('#del-session').count()) === 1, 'session detail still offers delete');
+
+  await page.locator('#edit-session').click();
+  await page.waitForSelector('#sess-dur');
+  check((await page.locator('#edit-session').count()) === 0, 'edit mode hides the edit/delete buttons');
+
+  // cancel must throw the draft away
+  await page.locator('#sess-dur').fill('999');
+  await page.locator('#cancel-edit').click();
+  await page.waitForSelector('#edit-session');
+  check(!(await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1'))[0].durationSec === 999 * 60)),
+    'Cancel discards the edit (999 min was not saved)');
+
+  // now really edit: add the treadmill walk that never got logged, fix the time
+  await page.locator('#edit-session').click();
+  await page.waitForSelector('#add-ex');
+  await page.locator('#add-ex').selectOption({ label: 'Treadmill (cardio)' });
+  await page.locator('#add-ex-go').click();
+  await page.waitForTimeout(150);
+  {
+    const card = page.locator('.run-ex').last();
+    check((await card.locator('.name').first().innerText()).includes('Treadmill'), 'Treadmill card was added');
+    const row = card.locator('.set-row').first();
+    await row.locator('[data-f="minutes"]').fill('20');
+    await row.locator('[data-f="incline"]').fill('12');
+    await row.locator('[data-f="speed"]').fill('5');
+  }
+  await page.locator('#sess-dur').fill('50');
+  await page.locator('#save-edit').click();
+  await page.waitForSelector('#edit-session');
+
+  const edited = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1'))[0]);
+  const walk = (edited.entries || []).find((e) => e.name === 'Treadmill');
+  check(!!walk && walk.kind === 'treadmill', 'the walk was saved as a cardio entry');
+  check(!!walk && walk.sets.length === 1 && walk.sets[0].minutes === 20 && walk.sets[0].incline === 12 && walk.sets[0].speed === 5,
+    `the walk kept its numbers (got ${JSON.stringify(walk && walk.sets[0])})`);
+  check(!!(edited.entries || []).find((e) => e.name === 'Bench Press'),
+    'the sets logged during the workout are untouched');
+  check(edited.durationSec === 3000, `duration edit saved (got ${edited.durationSec}s, want 3000s)`);
+  check(edited.endedAt === edited.startedAt + 3000 * 1000, 'end time follows the edited duration');
+  check(edited.endReason === 'manual', 'a hand-typed duration drops the auto-ended "~"');
+  check((await page.locator('.card').first().innerText()).includes('50m'),
+    'the detail screen shows the corrected duration');
+
+  // deleting a set writes through
+  await page.locator('#edit-session').click();
+  await page.waitForSelector('#sess-dur');
+  await page.locator('.run-ex').last().locator('[data-delset]').first().click();
+  await page.waitForTimeout(120);
+  await page.locator('#save-edit').click();
+  await page.waitForSelector('#edit-session');
+  check(!(await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('wt_sessions_v1'))[0].entries.some((e) => e.name === 'Treadmill'))),
+    'removing its only set removes the exercise from the session');
+
   console.log('\n[7p] Sync forward-compat: unknown cloud fields survive a pull->push round-trip');
   const roundTrip = await page.evaluate(async () => {
     const DB = await import('/js/db.js');

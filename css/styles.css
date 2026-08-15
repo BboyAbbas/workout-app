@@ -253,6 +253,9 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 }
 .hint-cols span { text-align: center; }
 
+/* history editing: the ✕ that removes a set (beats .set-row .set-n's muted colour) */
+.set-row .set-n.del { color: var(--danger); font-size: 18px; }
+
 /* the active (selected) set — what the pinned Log button will save */
 .set-row.active { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 .set-row.active .set-n { color: var(--accent); }

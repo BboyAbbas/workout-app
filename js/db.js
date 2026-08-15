@@ -648,6 +648,15 @@ export function addSession(session) {
 export function deleteSession(id) {
   write(KEY_SESSIONS, read(KEY_SESSIONS, []).filter((s) => s.id !== id));
 }
+/** Replace a saved session in place (history editing). No-op if the id is gone. */
+export function updateSession(session) {
+  const sessions = read(KEY_SESSIONS, []);
+  const i = sessions.findIndex((s) => s.id === session.id);
+  if (i === -1) return null;
+  sessions[i] = session;
+  write(KEY_SESSIONS, sessions);
+  return session;
+}
 
 /**
  * Build the SAVED entries for a finished session from an in-progress workout:

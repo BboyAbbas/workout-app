@@ -1116,24 +1116,86 @@ function screenSession(sessionId) {
   const s = DB.getSessions().find((x) => x.id === sessionId);
   if (!s) return go('#/history');
 
-  mount(`
-    ${topbar(fmtDate(s.startedAt), {
-      back: '#/plan/' + s.planId + '/history',
-      sub: `${esc(s.planName || '')} · ${fmtTime(s.startedAt)}`,
-      right: `<button class="icon-btn btn-danger" id="del-session" aria-label="Delete">${icons.trash}</button>`,
-    })}
-    <main class="screen">
-      <div class="card" style="display:flex;gap:18px;align-items:center">
-        <div>
-          <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Duration</div>
-          <div style="font-size:26px;font-weight:700;color:var(--accent)">${s.endReason === 'auto' ? '~' : ''}${fmtDuration(s.durationSec)}</div>
-        </div>
-        <div style="border-left:1px solid var(--border);padding-left:18px">
-          <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Sets</div>
-          <div style="font-size:26px;font-weight:700">${s.entries.reduce((a, e) => a + e.sets.length, 0)}</div>
-        </div>
-      </div>
-      ${s.endReason === 'auto' ? `<p class="desc" style="color:var(--warn,#e6a23c);margin:0">⏱ Auto-ended — you forgot to press Finish, so the duration is approximate (measured to your last logged set).</p>` : ''}
+  // Edit mode works on a DRAFT copy, so Cancel really discards and a half-typed
+  // number never reaches history. Only Save writes it back.
+  let draft = null;
+  const isEditing = () => draft !== null;
+
+  /* ---- helpers shared by view and edit ---- */
+  const emptySet = (kind) => {
+    if (kind && kind !== 'strength') {
+      const o = {};
+      for (const f of DB.cardioFields(kind)) o[f.key] = '';
+      return o;
+    }
+    return { reps: '', weight: '' };
+  };
+
+  /** Exercises that can still be ADDED: the plan's own, plus every cardio
+   *  machine — so a walk done after the app auto-finished can always be added,
+   *  even when the plan never had that machine. */
+  function addable() {
+    const plan = DB.getPlan(draft.planId);
+    const have = new Set(draft.entries.map((e) => String(e.name || '').toLowerCase()));
+    const out = [];
+    const push = (o) => { const k = o.name.toLowerCase(); if (!have.has(k)) { have.add(k); out.push(o); } };
+    for (const e of (plan && plan.exercises) || []) push({ id: e.id, name: e.name, kind: e.kind || 'strength' });
+    for (const [kind, v] of Object.entries(DB.CARDIO_KINDS)) push({ id: 'cardio-' + kind, name: v.label, kind });
+    return out;
+  }
+
+  /* ---- read every on-screen input back into the draft ---- */
+  function readInputs() {
+    qsa('.set-row[data-ei]').forEach((row) => {
+      const en = draft.entries[+row.dataset.ei];
+      const st = en && en.sets[+row.dataset.si];
+      if (!st) return;
+      row.querySelectorAll('.input').forEach((inp) => { st[inp.dataset.f] = inp.value; });
+    });
+    const dur = qs('#sess-dur');
+    if (dur) draft.durMin = dur.value;
+    const nt = qs('#sess-notes');
+    if (nt) draft.notes = nt.value;
+  }
+
+  function save() {
+    readInputs();
+    const entries = draft.entries.map((e) => {
+      const cardio = DB.isCardio(e);
+      const fields = cardio ? DB.cardioFields(e.kind) : null;
+      const req = cardio ? 'minutes' : 'reps';
+      const sets = e.sets
+        .filter((st) => st[req] !== '' && st[req] != null)   // a blank row is not a set
+        .map((st) => {
+          if (cardio) { const o = {}; for (const f of fields) o[f.key] = num(st[f.key], 0); return o; }
+          return { reps: num(st.reps, 0), weight: num(st.weight, 0) };
+        });
+      return { exerciseId: e.exerciseId, name: e.name, kind: e.kind || 'strength', sets };
+    }).filter((e) => e.sets.length);
+
+    if (!entries.length) return toast('Fill in at least one set — or delete the workout');
+
+    const wasMin = Math.round(s.durationSec / 60);
+    const min = Math.max(0, Math.round(num(draft.durMin, wasMin)));
+    const durationSec = min * 60;
+    DB.updateSession({
+      ...s,
+      entries,
+      durationSec,
+      endedAt: s.startedAt + durationSec * 1000,
+      notes: String(draft.notes || '').trim() || undefined,
+      // A duration you typed yourself is no longer an estimate, so the "~" goes.
+      endReason: min !== wasMin ? 'manual' : s.endReason,
+    });
+    draft = null;
+    toast('Workout updated');
+    screenSession(sessionId); // re-read from storage so the view shows what was saved
+  }
+
+  /* ---- read-only view ---- */
+  function viewBody() {
+    return `
+      ${s.endReason === 'auto' ? `<p class="desc" style="color:var(--warn,#e6a23c);margin:0">⏱ Auto-ended — you forgot to press Finish, so the duration is approximate (measured to your last logged set). Use the pencil above to correct it or add what you missed.</p>` : ''}
       ${s.notes ? `<div class="card"><p class="name" style="margin:0 0 6px;font-weight:620">📝 Notes</p><p class="desc" style="margin:0;white-space:pre-wrap">${esc(s.notes)}</p></div>` : ''}
       ${s.entries.map((e) => {
         const cardio = DB.isCardio(e);
@@ -1152,17 +1214,168 @@ function screenSession(sessionId) {
             </div>`;
           }).join('')}
         </div>`;
-      }).join('')}
-      <div class="spacer"></div>
-    </main>
-  `);
+      }).join('')}`;
+  }
 
-  qs('#del-session').addEventListener('click', () => {
-    if (confirm('Delete this workout from history?')) {
-      DB.deleteSession(s.id);
-      go('#/plan/' + s.planId + '/history');
+  /* ---- edit view: same set rows as the run screen, so it feels identical ---- */
+  function editBody() {
+    const exHtml = draft.entries.map((e, ei) => {
+      const cardio = DB.isCardio(e);
+      const fields = cardio ? DB.cardioFields(e.kind) : null;
+      const cols = cardio ? `grid-template-columns:40px repeat(${fields.length},1fr)` : '';
+      const head = cardio
+        ? `<div class="hint-cols" style="${cols}"><span>#</span>${fields.map((f) => `<span>${esc(f.label)}</span>`).join('')}</div>`
+        : `<div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>`;
+      const swap = cardio
+        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px">${Object.entries(DB.CARDIO_KINDS).map(([k, v]) =>
+            `<button class="btn btn-sm ${k === e.kind ? 'btn-primary' : 'btn-ghost'}" data-swapkind="${k}" data-swapei="${ei}" style="padding:4px 10px;font-size:12px">${esc(v.label)}</button>`).join('')}</div>`
+        : '';
+      const rows = e.sets.map((st, si) => {
+        const cells = cardio
+          ? fields.map((f) => `<div class="cell"><input class="input" data-f="${f.key}" inputmode="decimal" placeholder="${esc(f.ph)}" value="${esc(st[f.key] ?? '')}" /></div>`).join('')
+          : `<div class="cell"><input class="input" data-f="weight" inputmode="decimal" placeholder="kg" value="${esc(st.weight ?? '')}" /></div>
+             <div class="cell"><input class="input" data-f="reps" inputmode="numeric" placeholder="reps" value="${esc(st.reps ?? '')}" /></div>`;
+        return `
+        <div class="set-row" data-ei="${ei}" data-si="${si}" style="${cols}">
+          <button class="set-n del" data-delset="${ei}" data-si="${si}" aria-label="Delete set ${si + 1}">✕</button>
+          ${cells}
+        </div>`;
+      }).join('');
+      return `
+        <div class="card run-ex">
+          <div style="display:flex;align-items:center;gap:8px">
+            <p class="name" style="flex:1;margin:0">${esc(e.name)}</p>
+            <button class="btn btn-sm btn-ghost" data-delex="${ei}" style="padding:4px 10px;font-size:12px;color:var(--danger,#e05252)">Remove</button>
+          </div>
+          ${swap}
+          ${head}
+          ${rows}
+          <button class="btn btn-sm btn-ghost btn-block" data-addset="${ei}" style="margin-top:8px">${icons.plus} Add set</button>
+        </div>`;
+    }).join('');
+
+    const opts = addable();
+    return `
+      <div class="card">
+        <p class="name" style="margin:0 0 8px;font-weight:620">Duration</p>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input class="input" id="sess-dur" inputmode="numeric" style="max-width:110px" value="${esc(draft.durMin)}" />
+          <span style="color:var(--muted)">minutes</span>
+        </div>
+      </div>
+      ${exHtml}
+      ${opts.length ? `
+      <div class="card">
+        <p class="name" style="margin:0 0 8px;font-weight:620">Add an exercise</p>
+        <div style="display:flex;gap:8px">
+          <select class="input" id="add-ex" style="flex:1">
+            ${opts.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}${o.kind !== 'strength' ? ' (cardio)' : ''}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm btn-primary" id="add-ex-go">${icons.plus} Add</button>
+        </div>
+      </div>` : ''}
+      <div class="card">
+        <p class="name" style="margin:0 0 8px;font-weight:620">Session notes</p>
+        <textarea class="input" id="sess-notes" rows="3" placeholder="Anything about this session."
+          style="width:100%;resize:vertical;min-height:64px;font:inherit">${esc(draft.notes || '')}</textarea>
+      </div>
+      <div class="spacer"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="cancel-edit">Cancel</button>
+        <button class="btn btn-primary" id="save-edit" style="flex:1">${icons.check} Save changes</button>
+      </div>`;
+  }
+
+  function render() {
+    const editing = isEditing();
+    const setCount = (editing ? draft : s).entries.reduce((a, e) => a + e.sets.length, 0);
+    mount(`
+      ${topbar(fmtDate(s.startedAt), {
+        back: '#/plan/' + s.planId + '/history',
+        sub: `${esc(s.planName || '')} · ${fmtTime(s.startedAt)}`,
+        right: editing ? '' : `
+          <button class="icon-btn" id="edit-session" aria-label="Edit">${icons.edit}</button>
+          <button class="icon-btn btn-danger" id="del-session" aria-label="Delete">${icons.trash}</button>`,
+      })}
+      <main class="screen">
+        ${editing ? '' : `
+        <div class="card" style="display:flex;gap:18px;align-items:center">
+          <div>
+            <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Duration</div>
+            <div style="font-size:26px;font-weight:700;color:var(--accent)">${s.endReason === 'auto' ? '~' : ''}${fmtDuration(s.durationSec)}</div>
+          </div>
+          <div style="border-left:1px solid var(--border);padding-left:18px">
+            <div class="label" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Sets</div>
+            <div style="font-size:26px;font-weight:700">${setCount}</div>
+          </div>
+        </div>`}
+        ${editing ? editBody() : viewBody()}
+        <div class="spacer"></div>
+      </main>
+    `);
+    bind();
+  }
+
+  function bind() {
+    if (!isEditing()) {
+      qs('#edit-session').addEventListener('click', () => {
+        draft = JSON.parse(JSON.stringify({ ...s, durMin: Math.round(s.durationSec / 60) }));
+        render();
+      });
+      qs('#del-session').addEventListener('click', () => {
+        if (confirm('Delete this workout from history?')) {
+          DB.deleteSession(s.id);
+          go('#/plan/' + s.planId + '/history');
+        }
+      });
+      return;
     }
-  });
+
+    // structural edits: capture what's typed FIRST, or it's lost on re-render
+    const restructure = (fn) => { readInputs(); fn(); render(); };
+
+    qsa('[data-addset]').forEach((b) => b.addEventListener('click', () =>
+      restructure(() => {
+        const e = draft.entries[+b.dataset.addset];
+        e.sets.push(emptySet(e.kind));
+      })));
+
+    qsa('[data-delset]').forEach((b) => b.addEventListener('click', () =>
+      restructure(() => draft.entries[+b.dataset.delset].sets.splice(+b.dataset.si, 1))));
+
+    qsa('[data-delex]').forEach((b) => b.addEventListener('click', () =>
+      restructure(() => draft.entries.splice(+b.dataset.delex, 1))));
+
+    // cardio machine swap — keep the numbers whose field the new machine shares
+    qsa('[data-swapkind]').forEach((b) => b.addEventListener('click', () =>
+      restructure(() => {
+        const e = draft.entries[+b.dataset.swapei];
+        const kind = b.dataset.swapkind;
+        if (e.kind === kind) return;
+        const fields = DB.cardioFields(kind);
+        e.kind = kind;
+        e.name = (DB.CARDIO_KINDS[kind] || {}).label || e.name;
+        e.sets = e.sets.map((st) => {
+          const o = {};
+          for (const f of fields) o[f.key] = st[f.key] ?? '';
+          return o;
+        });
+      })));
+
+    const addBtn = qs('#add-ex-go');
+    if (addBtn) addBtn.addEventListener('click', () =>
+      restructure(() => {
+        const id = qs('#add-ex').value;
+        const pick = addable().find((o) => o.id === id);
+        if (!pick) return;
+        draft.entries.push({ exerciseId: pick.id, name: pick.name, kind: pick.kind, sets: [emptySet(pick.kind)] });
+      }));
+
+    qs('#cancel-edit').addEventListener('click', () => { draft = null; render(); });
+    qs('#save-edit').addEventListener('click', save);
+  }
+
+  render();
 }
 
 /* Tiny inline line chart (no deps). Scales values to the viewBox. */

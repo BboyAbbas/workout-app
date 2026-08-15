@@ -102,4 +102,5 @@ End-to-end, drives a real Chromium through the app:
 python -m http.server 8099 --bind 127.0.0.1 &   # serve first
 node tools/smoke_test.cjs
 node tools/plank_shots.cjs                      # screenshots of the plank states
+node tools/session_edit_shot.cjs <outDir>       # screenshots of history view/edit/saved
 ```
