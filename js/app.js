@@ -8,7 +8,7 @@ import * as DB from './db.js';
 import { initSync, pull, push } from './sync.js';
 import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert, scheduleWorkoutWatchdog, cancelWorkoutWatchdog } from './push.js';
 import {
-  esc, fmtClock, fmtDuration, fmtDate, fmtTime, fmtInt, fmtHold,
+  esc, fmtClock, fmtDuration, fmtDate, fmtAgo, fmtTime, fmtInt, fmtHold,
   icons, toast, summariseSets, summariseCardio,
 } from './ui.js';
 
@@ -165,7 +165,7 @@ function screenHome() {
       const last = DB.getSessionsForPlan(p.id)[0];
       const isNext = p.id === nextId;
       const desc = last
-        ? `${p.exercises.length} exercises · last ${fmtDate(last.startedAt).toLowerCase()}`
+        ? `${p.exercises.length} exercises · ${fmtAgo(last.startedAt)}`
         : `${p.exercises.length} exercises`;
       return `
         <div class="card plan-card tappable${isNext ? ' plan-next' : ''}" data-plan="${p.id}">
@@ -234,7 +234,7 @@ function screenHome() {
     <div class="card tappable" id="weight-bar" data-nav="#/weight" style="display:flex;align-items:center;gap:12px">
       <div style="flex:1">
         <p class="name" style="margin:0 0 2px;font-weight:650">⚖️ Weight · ${fmtKg(wLast.kg)} kg</p>
-        <p class="desc" style="margin:0;color:var(--muted)">${trend} · last ${esc(fmtDate(wLast.t).toLowerCase())}</p>
+        <p class="desc" style="margin:0;color:var(--muted)">${trend} · ${esc(fmtAgo(wLast.t))}</p>
       </div>
       <div style="color:var(--muted)">${icons.chart}</div>
     </div>`;

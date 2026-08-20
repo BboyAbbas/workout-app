@@ -61,6 +61,17 @@ export function fmtDate(ts) {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
+/** Relative day count: "today", "yesterday", else "5 days ago". */
+export function fmtAgo(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOf(now) - startOf(d)) / 86400000);
+  if (diff <= 0) return 'today';
+  if (diff === 1) return 'yesterday';
+  return `${diff} days ago`;
+}
+
 /** Time of day, e.g. "7:42 AM". */
 export function fmtTime(ts) {
   const d = new Date(ts);
