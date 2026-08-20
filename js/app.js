@@ -161,6 +161,10 @@ function screenHome() {
     `;
   } else {
     const nextId = plans.length > 1 ? DB.nextPlanId() : null;
+    // Designed rest days sit after these plans in the rotation
+    // (Push→Legs→Pull→REST→Upper→Lower→REST) — shown as a faint divider.
+    const REST_AFTER = ['pull', 'lower'];
+    const restSep = '<div class="rest-sep"><span>rest day</span></div>';
     const cards = plans.map((p) => {
       const last = DB.getSessionsForPlan(p.id)[0];
       const isNext = p.id === nextId;
@@ -174,7 +178,7 @@ function screenHome() {
             <p class="desc">${esc(desc)}</p>
           </div>
           <button class="icon-btn btn-primary" style="border-radius:12px" data-run="${p.id}" aria-label="Start">${icons.play}</button>
-        </div>`;
+        </div>${REST_AFTER.includes((p.name || '').trim().toLowerCase()) ? restSep : ''}`;
     });
     // The plank trainer sits directly under the cardio block — after the LAST
     // cardio-only plan wherever it happens to sit in the list, or at the end
