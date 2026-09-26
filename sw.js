@@ -2,13 +2,14 @@
    Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
    (no more stale-cache surprises while iterating). Offline -> fall back to the
    cached copy. Bump CACHE on release to drop the old precache. */
-const CACHE = 'workout-v54';
+const CACHE = 'workout-v55';
 const SHELL = [
   './',
   'index.html',
   'css/styles.css',
   'js/app.js',
   'js/db.js',
+  'js/intervals.js',
   'js/ui.js',
   'js/sync.js',
   'js/push.js',

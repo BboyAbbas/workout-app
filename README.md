@@ -20,6 +20,7 @@ holds one shared JSON copy so the same data follows you across devices.
 - **Up next** — the plan due next in the rotation is highlighted. Cardio-only
   plans and the plank trainer sit outside the rotation.
 - **Plank Trainer** — its own section under the cardio plan (see below).
+- **Interval Trainer** — timed intervals (Norwegian 4×4, sprints, Tabata, 10×1, custom) under "Trainers", or as a finisher from a live workout (see below).
 - **Weight** — weigh-in log, chart with a target line, and progress against a
   goal with a countdown.
 - **History & insights** — every workout with per-set detail, records, stalls,
@@ -44,6 +45,18 @@ A stopwatch for holds, with the record on screen the whole time.
 - Plank data lives in its own store (`wt_planks_v1`) and its own cloud-sync
   field — never a plan and never a workout session, so it can't reach the up-next
   rotation or the strength records.
+
+## Interval Trainer
+
+A Timer Plus-style interval timer for the treadmill or the bike.
+
+- Presets: Norwegian 4×4 (10:00 warm-up · 4:00 hard / 3:00 easy × 4 · 5:00 cool-down, per NTNU CERG), Sprints, Tabata, 10×1, and one Custom slot. Each preset remembers your edits.
+- The run screen paints the phase colour (hard = green, easy = blue, warm-up/cool-down = slate), shows the whole session as a strip, and the speed to hold.
+- Cues: a heads-up tone and buzz 7 s before every switch, 3-2-1 ticks, then a tone, a buzz and a spoken line. Mute keeps the buzz.
+- Pause, restart / previous block, skip. The clock is worked out from timestamps, so a reload or a short lock never loses your place; a run left paused or unseen for 30 min ends and keeps what you did.
+- The session is saved the moment it ends. On the summary you add the speed (km/h) or level you held; next time the setup shows a target one step up if you finished every round.
+- From a live workout, "Add an interval finisher" starts with a 3:00 warm-up, keeps the workout clock running, and returns to the workout.
+- Data lives in its own store (`wt_intervals_v1`) and cloud-sync field `intervals`. Each finished hard round counts as one set on the Consistency heatmap; sessions never enter plans, workout history, up-next or strength records.
 
 ## Data & sync
 
@@ -93,7 +106,7 @@ GitHub Pages redeploys automatically.
 Unit tests (no browser, no server):
 
 ```bash
-npm test        # rec_test + ui_test + analytics_test + plank_test
+npm test        # rec_test + ui_test + analytics_test + plank_test + interval_test
 ```
 
 End-to-end, drives a real Chromium through the app:
@@ -102,5 +115,6 @@ End-to-end, drives a real Chromium through the app:
 python -m http.server 8099 --bind 127.0.0.1 &   # serve first
 node tools/smoke_test.cjs
 node tools/plank_shots.cjs                      # screenshots of the plank states
+node tools/interval_shots.cjs                   # screenshots of the interval states
 node tools/session_edit_shot.cjs <outDir>       # screenshots of history view/edit/saved
 ```
