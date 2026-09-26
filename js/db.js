@@ -33,7 +33,7 @@ function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   // mark data dirty + notify the sync layer when plans/sessions change
   if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS || key === KEY_PLANKS || key === KEY_INTERVALS) {
-    localStorage.setItem(KEY_UPDATED, String(Date.now()));
+    stampChange();
     if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
   }
 }
@@ -41,11 +41,18 @@ function write(key, value) {
 /* ---------- cloud-sync hooks ---------- */
 /** ms timestamp of the last local change to plans/sessions (0 if never). */
 export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
+/* Every local change is stamped STRICTLY newer than the previous stamp — which,
+   after a pull, is the cloud version this device last saw. So a change made on
+   a device whose clock runs behind still wins over the version it was built on
+   (other devices pull it instead of ignoring it), and two changes in the same
+   millisecond never share a stamp (the second would look already-pushed). */
+function stampChange(floor = 0) {
+  localStorage.setItem(KEY_UPDATED, String(Math.max(Date.now(), getUpdatedAt() + 1, Number(floor) || 0)));
+}
 /** Mark local data as changed (forces the next push) without touching content.
  *  `floor`: never stamp below it — a pull that merged local work back in passes
- *  the cloud stamp + 1, so a device whose clock runs behind still pushes a doc
- *  the other devices see as NEWER (otherwise they would never pull it). */
-export function markDirty(floor = 0) { localStorage.setItem(KEY_UPDATED, String(Math.max(Date.now(), Number(floor) || 0))); }
+ *  the cloud stamp + 1. */
+export function markDirty(floor = 0) { stampChange(floor); }
 /* Fields this app version reads and owns. Anything ELSE in the cloud doc is
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
@@ -120,7 +127,7 @@ export function getGoal() { return read(KEY_GOAL, null); }
 export function setGoal(goal) {
   if (goal) return write(KEY_GOAL, goal);
   localStorage.removeItem(KEY_GOAL);
-  localStorage.setItem(KEY_UPDATED, String(Date.now()));
+  stampChange();
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
 
@@ -391,6 +398,10 @@ export function plankStep(run, action, now = Date.now()) {
       if (r.phase !== 'hold') return run;
       const sec = plankHoldSec(run, now);
       r.startAt = 0;
+      if (now - run.startAt >= PLANK_ABANDON_MS) { // left running, not held — same rule as a reload
+        r.phase = 'ready'; r.switchEndAt = 0; r.restEndAt = 0; r.lastEvent = 'abandoned';
+        return r;
+      }
       if (sec < MIN_PLANK_SEC) { // a mis-tap, not a plank: nothing recorded, same set
         r.phase = 'ready'; r.switchEndAt = 0; r.restEndAt = 0; r.lastEvent = 'discarded';
         return r;
@@ -471,7 +482,7 @@ export function plankResume(run, now = Date.now()) {
     return run;
   }
   if (run.phase === 'hold') {
-    if (!run.startAt || now - run.startAt > PLANK_ABANDON_MS) {
+    if (!run.startAt || now - run.startAt >= PLANK_ABANDON_MS) {
       return { ...run, phase: 'ready', startAt: 0, switchEndAt: 0, restEndAt: 0, lastEvent: 'abandoned' };
     }
     return run;
@@ -1127,7 +1138,7 @@ export function resetAll() {
   localStorage.removeItem(KEY_PLANK_ACTIVE);
   localStorage.removeItem(KEY_INTERVALS);
   localStorage.removeItem(KEY_INTERVAL_ACTIVE);
-  localStorage.setItem(KEY_UPDATED, String(Date.now()));
+  stampChange();
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
 

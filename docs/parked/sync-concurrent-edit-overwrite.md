@@ -21,6 +21,14 @@ Abbas wants his workout data safe across devices ("i want my data and progress t
 
 Same for workout sessions, weigh-ins, plank sets and interval sessions. The window is small (pull runs on load, focus and visibility), so it needs two devices both changing data between syncs.
 
+- **Also fixed 2026-09-26 (review cycle 2):** uploads from one device are serialized; every local change is stamped strictly newer than the last cloud version the device saw; the interval pull-merge is detected by comparing data, not counts.
+
+## Accepted limits (review cycle 2, 2026-09-26)
+- An OLD app version shows side-plank holds as front holds (and a wrong front record) until it updates; it updates on its next online open (network-first service worker).
+- Restoring a backup only ADDS the fields it holds; an exported `null` field does not wipe later data. Changing that could wipe data from an old backup.
+- Running the old and new app versions on the SAME device at once can drop a parked `intervals` copy on upgrade (adoption only fills an empty store).
+- The Worker overwrites without comparing `updatedAt`; a server-side "reject older than stored" guard would close cross-device out-of-order writes too (needs a Worker deploy).
+
 ## Rejected
 - **Trigger the merge on `remote.updatedAt > pushed` instead of `> localUpdated`** — merges records, but then applies remote over plans/goal/prefs, which would drop a NEWER local plan edit. Swaps one loss for another.
 - **Field-level last-write-wins without per-record stamps** — the doc has one `updatedAt`; per-field recency is not knowable today.

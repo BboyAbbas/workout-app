@@ -1913,6 +1913,7 @@ function screenPlank() {
     }
     if (ev === 'discarded') toast('Too short to count — nothing logged');
     if (ev === 'cancelled') toast('Set cancelled — nothing logged');
+    if (ev === 'abandoned') toast('Clock ran over 30 minutes — not counted');
 
     run = next;
     persist();

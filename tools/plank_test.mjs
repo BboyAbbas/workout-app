@@ -662,5 +662,18 @@ console.log('fmtHold — plank-length readout:');
   eq('negative clamps', UI.fmtHold(-3), '0s');
 }
 
+console.log('plankStep — a hold left running 30+ min is dropped even when stopped on screen:');
+{
+  let r = DB.newPlankRun({ targetSets: 3, restSec: 60 }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  const s = DB.plankStep(r, { type: 'stop' }, T(1) + DB.PLANK_ABANDON_MS);
+  eq('nothing recorded', s.sets.length, 0);
+  eq('event', s.lastEvent, 'abandoned');
+  eq('same set, ready again', s.phase, 'ready');
+  eq('a reload exactly at the limit also drops it', DB.plankResume(r, T(1) + DB.PLANK_ABANDON_MS).lastEvent, 'abandoned');
+  const ok29 = DB.plankStep(r, { type: 'stop' }, T(1) + DB.PLANK_ABANDON_MS - 60000);
+  eq('a 29-minute hold still counts', ok29.lastEvent, 'recorded');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

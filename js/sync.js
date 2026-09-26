@@ -30,10 +30,6 @@ function countPlankSets(doc) {
   if (!doc || !Array.isArray(doc.sessions)) return 0;
   return doc.sessions.reduce((n, s) => n + ((s && s.sets) || []).length, 0);
 }
-function countIntervalFacts(doc) { // sessions + speeds: either one arriving means the cloud lacked it
-  if (!doc || !Array.isArray(doc.sessions)) return 0;
-  return doc.sessions.reduce((n, s) => n + 1 + (s && s.pace != null ? 1 : 0), 0);
-}
 function url() { return `${ENDPOINT}?id=${encodeURIComponent(USER_ID)}`; }
 
 /** Pull remote; if it's newer than local, apply it and re-render.
@@ -92,12 +88,14 @@ export async function pull() {
           data.planks = DB.mergePlankDoc(data.planks, mineP);
           mergedIn += Math.max(0, countPlankSets(data.planks) - before);
         }
-        // interval sessions recorded offline, and speeds typed in afterwards
+        // interval sessions recorded offline, and speeds typed in afterwards.
+        // Compared as data, not counted: a merge that also drops junk the cloud
+        // held can leave the count unchanged while still adding a real session.
         const mineI = local.intervals;
         if (mineI && Array.isArray(mineI.sessions) && mineI.sessions.length) {
-          const before = countIntervalFacts(data.intervals);
+          const before = JSON.stringify(data.intervals ?? null);
           data.intervals = DB.mergeIntervalDoc(data.intervals, mineI);
-          mergedIn += Math.max(0, countIntervalFacts(data.intervals) - before);
+          if (JSON.stringify(data.intervals ?? null) !== before) mergedIn++;
         }
       }
       DB.applyRemote(data, remote.updatedAt);
@@ -111,8 +109,21 @@ export async function pull() {
   finally { pulling = false; }
 }
 
-/** Push local to the cloud if it changed since the last successful push. */
-export async function push() {
+/** Push local to the cloud if it changed since the last successful push.
+ *  One upload at a time: two overlapping PUTs can land out of order (slow gym
+ *  Wi-Fi), leaving the OLDER snapshot in the cloud while this device believes
+ *  both went up. A push asked for mid-flight runs right after, with the newest data. */
+let pushInFlight = null;
+let pushAgain = false;
+export function push() {
+  if (pushInFlight) { pushAgain = true; return pushInFlight; }
+  pushInFlight = pushOnce().finally(() => {
+    pushInFlight = null;
+    if (pushAgain) { pushAgain = false; push(); }
+  });
+  return pushInFlight;
+}
+async function pushOnce() {
   const updatedAt = DB.getUpdatedAt();
   if (!updatedAt || String(updatedAt) === localStorage.getItem(KEY_PUSHED)) return;
   try {

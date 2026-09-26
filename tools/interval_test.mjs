@@ -493,14 +493,68 @@ console.log('mergeIntervalDoc — duplicate ids collapse to one:');
   eq('its speed kept', m.sessions[0].pace, 12);
 }
 
-console.log('markDirty — never stamps below a floor:');
+console.log('markDirty — never stamps below a floor, and stamps never go backwards:');
 {
   reset();
   const floor = Date.now() + 10 * 60000;
   DB.markDirty(floor);
   ok('stamp at or above the floor', DB.getUpdatedAt() >= floor);
+  const before = DB.getUpdatedAt();
   DB.markDirty();
-  ok('a plain call still stamps now', DB.getUpdatedAt() <= Date.now());
+  ok('a later change is stamped strictly newer', DB.getUpdatedAt() > before);
+}
+
+console.log('write stamps — a change is always newer than the cloud version it builds on (fast-clock safe):');
+{
+  reset();
+  const cloudAt = Date.now() + 10 * 60000;          // last version seen came from a device whose clock runs fast
+  store.wt_updated_at = String(cloudAt); store.wt_pushed_at = String(cloudAt);
+  DB.recordIntervalSession({ id: 'd', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  ok('stamped newer than the cloud version', DB.getUpdatedAt() > cloudAt);
+  const a = DB.getUpdatedAt();
+  DB.setIntervalPace('d', 12);
+  ok('two changes in the same millisecond still get distinct stamps', DB.getUpdatedAt() > a);
+}
+
+console.log('sync.pull — a merge is detected even when the cloud held junk entries:');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  const puts = [];
+  const cloudAt = Date.now() + 5000;
+  globalThis.fetch = async (u, opts = {}) => {
+    if (opts.method === 'PUT') { puts.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ updatedAt: cloudAt, data: { plans: [], sessions: [], intervals: { sessions: [null] } } }) };
+  };
+  DB.recordIntervalSession({ id: 'offline', t: 2, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  store.wt_pushed_at = '1';
+  await SYNC.pull();
+  await new Promise((r) => setTimeout(r, 50));
+  eq('the merged doc is pushed', puts.length, 1);
+  eq('with the offline session in it', puts[0] && puts[0].data.intervals.sessions.map((s) => s && s.id).filter(Boolean).join(), 'offline');
+}
+
+console.log('sync.push — pushes from one device go out one at a time, newest last:');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  const bodies = [];
+  let inFlight = 0, maxInFlight = 0;
+  globalThis.fetch = (u, opts = {}) => new Promise((resolve) => {
+    if (opts.method !== 'PUT') return resolve({ ok: true, json: async () => ({}) });
+    inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    bodies.push(JSON.parse(opts.body));
+    setTimeout(() => { inFlight--; resolve({ ok: true, json: async () => ({}) }); }, 30);
+  });
+  DB.recordIntervalSession({ id: 'x1', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  const p1 = SYNC.push();
+  DB.recordIntervalSession({ id: 'x2', t: 2, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  const p2 = SYNC.push();
+  await p1; await p2;
+  await new Promise((r) => setTimeout(r, 150));
+  eq('never two uploads in flight', maxInFlight, 1);
+  eq('the last upload carries both sessions', bodies.length && bodies[bodies.length - 1].data.intervals.sessions.length, 2);
+  eq('the device then counts as fully pushed', store.wt_pushed_at, String(DB.getUpdatedAt()));
 }
 
 console.log('sync.pull — merged offline data is pushed newer than the cloud (clock-skew safe):');
