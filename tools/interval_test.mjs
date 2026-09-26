@@ -557,6 +557,59 @@ console.log('sync.push — pushes from one device go out one at a time, newest l
   eq('the device then counts as fully pushed', store.wt_pushed_at, String(DB.getUpdatedAt()));
 }
 
+console.log('sync.push — uploads take the lock shared by every tab of the app:');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  const locks = [];
+  const realNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true,
+    value: { locks: { request: (name, fn) => { locks.push(name); return Promise.resolve().then(fn); } } } });
+  let putsL = 0;
+  globalThis.fetch = async (u, opts = {}) => { if (opts.method === 'PUT') putsL++; return { ok: true, json: async () => ({}) }; };
+  DB.recordIntervalSession({ id: 'l1', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  await SYNC.push();
+  if (realNav) Object.defineProperty(globalThis, 'navigator', realNav); else delete globalThis.navigator;
+  eq('the upload ran inside the shared lock', locks.join(), 'wt-sync-push');
+  eq('and was sent', putsL, 1);
+}
+
+console.log('sync.syncNow — coming back to the app retries an upload that failed:');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  let putsR = 0, offline = true;
+  globalThis.fetch = async (u, opts = {}) => {
+    if (opts.method === 'PUT') { if (offline) throw new Error('offline'); putsR++; return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ updatedAt: 5, data: { plans: [], sessions: [] } }) }; // cloud older than local
+  };
+  DB.recordIntervalSession({ id: 'r9', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  await SYNC.push();                 // gym Wi-Fi drops: fails
+  offline = false;
+  await SYNC.syncNow();              // app comes back into view
+  eq('the pending upload went out', putsR, 1);
+  eq('and the device counts as pushed', store.wt_pushed_at, String(DB.getUpdatedAt()));
+}
+
+console.log('sync.pull — the same data in a different order triggers no upload:');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  const putsO = [];
+  const cloudAt = Date.now() + 5000;
+  const a = { id: 'a', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: 12 };
+  const b = { id: 'b', t: 2, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null };
+  globalThis.fetch = async (u, opts = {}) => {
+    if (opts.method === 'PUT') { putsO.push(1); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ updatedAt: cloudAt, data: { plans: [], sessions: [], intervals: { sessions: [b, a] } } }) };
+  };
+  DB.recordIntervalSession(a); DB.recordIntervalSession(b);
+  store.wt_pushed_at = '1';
+  await SYNC.pull();
+  await new Promise((r) => setTimeout(r, 50));
+  eq('no upload', putsO.length, 0);
+}
+
 console.log('sync.pull — merged offline data is pushed newer than the cloud (clock-skew safe):');
 {
   reset();

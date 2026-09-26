@@ -89,13 +89,14 @@ export async function pull() {
           mergedIn += Math.max(0, countPlankSets(data.planks) - before);
         }
         // interval sessions recorded offline, and speeds typed in afterwards.
-        // Compared as data, not counted: a merge that also drops junk the cloud
-        // held can leave the count unchanged while still adding a real session.
+        // Compared as the set of real sessions + speeds, not counted: dropping
+        // junk the cloud held can hide an added session in a count, and a mere
+        // change of order must not trigger an upload.
         const mineI = local.intervals;
         if (mineI && Array.isArray(mineI.sessions) && mineI.sessions.length) {
-          const before = JSON.stringify(data.intervals ?? null);
+          const before = intervalFacts(data.intervals);
           data.intervals = DB.mergeIntervalDoc(data.intervals, mineI);
-          if (JSON.stringify(data.intervals ?? null) !== before) mergedIn++;
+          if (intervalFacts(data.intervals) !== before) mergedIn++;
         }
       }
       DB.applyRemote(data, remote.updatedAt);
@@ -109,15 +110,25 @@ export async function pull() {
   finally { pulling = false; }
 }
 
+/** What an interval merge can add: real session ids and their speeds, in a fixed order. */
+function intervalFacts(doc) {
+  return JSON.stringify(((doc && doc.sessions) || []).filter((s) => s && s.id)
+    .map((s) => `${s.id}:${s.pace ?? ''}`).sort());
+}
+
 /** Push local to the cloud if it changed since the last successful push.
  *  One upload at a time: two overlapping PUTs can land out of order (slow gym
  *  Wi-Fi), leaving the OLDER snapshot in the cloud while this device believes
- *  both went up. A push asked for mid-flight runs right after, with the newest data. */
+ *  both went up. Across tabs a Web Lock holds the line (each upload reads the
+ *  shared local data fresh inside it); inside a tab, a push asked for mid-flight
+ *  runs right after, with the newest data. */
+const exclusive = (fn) => (typeof navigator !== 'undefined' && navigator.locks
+  ? navigator.locks.request('wt-sync-push', fn) : fn());
 let pushInFlight = null;
 let pushAgain = false;
 export function push() {
   if (pushInFlight) { pushAgain = true; return pushInFlight; }
-  pushInFlight = pushOnce().finally(() => {
+  pushInFlight = exclusive(pushOnce).finally(() => {
     pushInFlight = null;
     if (pushAgain) { pushAgain = false; push(); }
   });
@@ -141,15 +152,20 @@ function schedulePush() {
   pushTimer = setTimeout(push, 1500); // debounce bursts of edits
 }
 
+/** Coming back to the app: pull anything newer, then send whatever is still
+ *  pending — an upload that failed on bad Wi-Fi is retried here, not only on
+ *  the next edit or reload. push() sends nothing when there is nothing new. */
+export function syncNow() { return pull().then(() => push()); }
+
 /** Wire up sync. `onRemoteApplied` re-renders the current screen after a pull.
  *  Returns the initial pull promise so the caller can seed defaults if, after
  *  pulling, there's still no data. */
 export function initSync(onRemoteApplied) {
   onApplied = onRemoteApplied;
   window.addEventListener('wt-changed', schedulePush);
-  window.addEventListener('focus', pull);
+  window.addEventListener('focus', syncNow);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') pull();
+    if (document.visibilityState === 'visible') syncNow();
   });
   // flush a pending push before the app is hidden/closed
   window.addEventListener('pagehide', push);
