@@ -548,8 +548,132 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .plank-hist-row .plank-del { width: 40px; min-width: 40px; height: 40px; opacity: 0.65; }
 .plank-hist-row .plank-del svg { width: 18px; height: 18px; }
 
+/* ---------- Interval trainer ---------- */
+:root {
+  --iv-hard: var(--accent); /* effort = the app's green, same as a plank hold */
+  --iv-easy: #6aa9ff;       /* recovery = the plank rest blue */
+  --iv-warm: #8b93a7;       /* warm-up / cool-down = calm slate */
+}
+
+/* home card: the plank card's anatomy; a running session gets the up-next glow */
+.iv-of { font-size: 14px; color: var(--muted); font-weight: 650; }
+.plank-home.iv-live { border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 4px 18px rgba(52, 211, 153, 0.18); }
+
+/* live-workout finisher entry — dashed: optional, not part of the plan */
+.iv-finisher { display: flex; align-items: center; gap: 14px; border-style: dashed; }
+.iv-finisher .meta { flex: 1; min-width: 0; }
+.iv-finisher .name { font-size: 16px; font-weight: 620; margin: 0 0 3px; }
+.iv-finisher .desc { font-size: 13px; color: var(--muted); margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the whole session as one strip, each block to scale */
+.iv-strip { display: flex; gap: 3px; width: 100%; height: 10px; }
+.iv-strip i { display: block; min-width: 3px; border-radius: 3px; background: var(--iv-warm); position: relative; overflow: hidden; }
+.iv-strip i.hard { background: var(--iv-hard); }
+.iv-strip i.easy { background: var(--iv-easy); }
+.iv-strip.live i.past { opacity: 0.28; }
+.iv-strip.live i.future { opacity: 0.55; }
+.iv-strip.live i.now { opacity: 1; outline: 2px solid rgba(244, 246, 248, 0.9); outline-offset: 1px; }
+.iv-strip.live i.now::after { /* time already run inside the current block */
+  content: ''; position: absolute; inset: 0 auto 0 0; width: var(--done, 0%);
+  background: rgba(15, 17, 21, 0.55);
+}
+
+/* setup */
+.iv-chips5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.iv-chips5 .chip-tab { min-width: 0; min-height: 46px; font-size: 13px; padding: 0 2px; letter-spacing: -0.01em; }
+.iv-chips2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.iv-chips2 .chip-tab { min-height: 48px; font-size: 15px; }
+.iv-finisher-note { margin: 12px 2px 0; font-size: 13px; color: var(--accent); font-weight: 600; }
+.iv-hero { margin-top: 14px; padding: 18px 16px 16px;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(52, 211, 153, 0.10), transparent 70%), var(--surface); }
+.iv-hero-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.iv-hero-name { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; }
+.iv-hero-total { font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.iv-hero-total span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.iv-hero-sub { font-size: 13px; color: var(--muted); margin: 2px 0 14px; display: flex; justify-content: space-between; gap: 10px; }
+.iv-hero .iv-strip { height: 12px; }
+.iv-rows { padding: 4px 16px; }
+.iv-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.iv-row:last-child { border-bottom: none; }
+.iv-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--iv-warm); flex: none; }
+.iv-dot.hard { background: var(--iv-hard); }
+.iv-dot.easy { background: var(--iv-easy); }
+.iv-dot.none { background: transparent; border: 1px solid var(--border); }
+.iv-row-l { flex: 1; font-size: 15px; font-weight: 600; }
+.iv-row-l small { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+.iv-row .rest-ctl-val { min-width: 58px; font-size: 17px; }
+.iv-row .rest-step { width: 40px; height: 40px; }
+.iv-reset { width: 100%; margin-top: -4px; }
+.iv-prog { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.iv-prog .l { flex: 1; font-size: 13px; color: var(--muted); }
+.iv-prog .l b { color: var(--text); font-size: 15px; }
+.iv-prog .t { text-align: right; line-height: 1.15; }
+.iv-prog .t b { display: block; color: var(--accent); font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.iv-prog .t span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+.iv-tag { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-2);
+  padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+
+/* run: the stage takes the phase colour */
+.iv-stage { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 4px; }
+.iv-stage::before { /* soft phase-coloured glow behind the ring: readable from the treadmill */
+  content: ''; position: absolute; left: -18px; right: -18px; top: 20px; height: 420px; z-index: -1;
+  background: radial-gradient(60% 50% at 50% 45%, var(--glow), transparent 75%);
+}
+.iv-stage.hard { --ph: var(--iv-hard); --glow: rgba(52, 211, 153, 0.16); }
+.iv-stage.easy { --ph: var(--iv-easy); --glow: rgba(106, 169, 255, 0.16); }
+.iv-stage.warm { --ph: var(--iv-warm); --glow: rgba(139, 147, 167, 0.12); }
+.iv-stage > .btn { width: 100%; }
+.iv-stage .plank-ring-wrap { width: min(84vw, 318px); }
+.iv-stage .plank-ring-fill { stroke: var(--ph); stroke-width: 13; }
+.iv-stage.paused .plank-ring-wrap, .iv-stage.paused .iv-strip { opacity: 0.45; }
+.iv-stage.paused .iv-time { animation: iv-blink 1.4s ease-in-out infinite; }
+@keyframes iv-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.iv-phase { font-size: 15px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ph); }
+.iv-time { font-size: 76px; font-weight: 780; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1; }
+.iv-round { font-size: 14px; color: var(--muted); font-weight: 600; }
+.iv-pace { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted);
+  border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 7px 14px; }
+.iv-pace b { color: var(--accent); font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.iv-pace.off { visibility: hidden; }
+.iv-next { width: 100%; display: flex; align-items: center; gap: 12px; margin: 0; padding: 13px 16px; border-left: 4px solid var(--nx); }
+.iv-next.easy { --nx: var(--iv-easy); }
+.iv-next.hard { --nx: var(--iv-hard); }
+.iv-next.warm { --nx: var(--iv-warm); }
+.iv-next .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+.iv-next .v { font-size: 17px; font-weight: 700; }
+.iv-next .v span { color: var(--nx); }
+.iv-next .r { margin-left: auto; text-align: right; font-size: 13px; color: var(--muted); }
+/* last 7 s of a block: the next block announces itself */
+.iv-next.soon { border: 1px solid var(--nx); border-left-width: 4px;
+  background: color-mix(in srgb, var(--nx) 14%, var(--surface)); animation: iv-soon 1s ease-in-out infinite; }
+.iv-next.soon .k { color: var(--nx); }
+.iv-next.soon .r b { color: var(--text); font-size: 15px; }
+@keyframes iv-soon { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 22px -2px var(--nx); } }
+.iv-stage.soon .iv-time { animation: iv-tick 1s ease-in-out infinite; }
+@keyframes iv-tick { 0%, 100% { transform: none; } 12% { transform: scale(1.06); } }
+.iv-ctrl { display: flex; gap: 10px; width: 100%; }
+.iv-ctrl .btn { height: 64px; }
+.iv-ctrl .iv-side { width: 64px; padding: 0; flex: none; }
+.iv-ctrl .iv-side svg { width: 22px; height: 22px; }
+.iv-ctrl .btn-primary { flex: 1; font-size: 18px; font-weight: 750; }
+.iv-ctrl .btn-primary svg { width: 22px; height: 22px; }
+
+/* summary: speed entry */
+.plank-pb-banner.iv-partial { border-color: var(--border); color: var(--text); background: var(--surface); }
+.iv-pace-q { margin: 0 0 4px; font-weight: 620; text-align: center; }
+.iv-pace-in { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 6px 0 4px; }
+.iv-pace-in .rest-step { width: 52px; height: 52px; font-size: 24px; border-radius: 12px; }
+.iv-pace-in .input { width: 130px; font-size: 32px; font-weight: 750; text-align: center; padding: 8px 6px;
+  border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: rgba(52, 211, 153, 0.06); }
+.iv-pace-in .u { font-size: 15px; color: var(--muted); font-weight: 600; }
+.iv-pace-hint { text-align: center; font-size: 13px; color: var(--muted); margin: 0; }
+.iv-pace-hint b { color: var(--accent); }
+
 @media (prefers-reduced-motion: reduce) {
   .plank-ring-wrap.past-best { animation: none; }
   .plank-pb.beat, .plank-pb-banner { animation: none; }
   .plank-ring-fill { transition: none; }
+  .iv-next.soon, .iv-stage.soon .iv-time, .iv-stage.paused .iv-time { animation: none; }
 }

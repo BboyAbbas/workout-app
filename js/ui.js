@@ -104,6 +104,12 @@ export const icons = {
   cloud: svg('<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>'),
   timer: svg('<path d="M10 2.5h4"/><path d="M12 14V9.5"/><circle cx="12" cy="14" r="8"/>'),
   trophy: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5H5v1a3 3 0 0 0 3 3M16 5h3v1a3 3 0 0 1-3 3"/><path d="M12 13v4M9 21h6M10 17h4"/>'),
+  pulse: svg('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
+  sound: svg('<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'),
+  muted: svg('<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/>'),
+  pause: svg('<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/>'),
+  next: svg('<path d="M5 4.5l10 7.5-10 7.5z" fill="currentColor" stroke="none"/><path d="M19 5v14"/>'),
+  prev: svg('<path d="M19 19.5L9 12l10-7.5z" fill="currentColor" stroke="none"/><path d="M5 5v14"/>'),
 };
 
 /** Transient toast message. */

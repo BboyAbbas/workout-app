@@ -1034,6 +1034,64 @@ function check(cond, msg) {
   await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
+  console.log('\n[7i] Interval Trainer — home, setup, run, summary, finisher');
+  // The preceding cloud-pull test applies empty plans and workout sessions.
+  // Rebuild this journey's Cardio placement and heatmap fixtures explicitly.
+  await page.evaluate(async () => {
+    const DB = await import('./js/db.js');
+    DB.seedDefaultPlans();
+    const plans = DB.getPlans();
+    plans.push({ id: 'iv-cardio', name: 'Cardio', createdAt: Date.now(),
+      exercises: [{ id: 'iv-walk', name: 'Incline Walk', kind: 'treadmill', sets: 1, rest: 0 }] });
+    localStorage.setItem('wt_plans_v1', JSON.stringify(plans));
+    localStorage.setItem('wt_sessions_v1', JSON.stringify([{
+      id: 'iv-heat-base', planId: plans[0].id, planName: plans[0].name,
+      startedAt: Date.now(), durationSec: 60,
+      entries: [{ exerciseId: 'iv-bench', name: 'Bench Press', kind: 'strength', sets: [{ reps: 5, weight: 50 }] }],
+    }]));
+  });
+  await page.evaluate(() => { localStorage.removeItem('wt_intervals_v1'); localStorage.removeItem('wt_interval_active_v1'); });
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#iv-card');
+  const trainerOrder = await page.evaluate(() => Array.from(
+    document.querySelectorAll('.plan-card, #iv-card, #plank-card, .section-label'))
+    .map((n) => n.id || (n.classList.contains('section-label') ? 'LABEL:' + n.textContent.trim()
+      : ((n.querySelector('.name') || {}).textContent || ''))));
+  const iCar = trainerOrder.findIndex((x) => x.includes('Cardio'));
+  check(trainerOrder[iCar + 1] === 'LABEL:Trainers' && trainerOrder[iCar + 2] === 'iv-card' && trainerOrder[iCar + 3] === 'plank-card',
+    `Trainers label, then Interval, then Plank, under Cardio (${trainerOrder.join(' | ')})`);
+  check(((await page.locator('#iv-card .plank-home-best').textContent()) || '').replace(/\s+/g, '').startsWith('0/2'),
+    'the week count starts at 0/2');
+  // today's heatmap cell, read from its "N sets" title — compared after the run
+  const todaySets = () => page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('.cal .cal-cell:not(.cal-future)'));
+    const m = /(\d+) sets/.exec((cells[cells.length - 1] || {}).title || '');
+    return m ? Number(m[1]) : -1;
+  });
+  const heatBefore = await todaySets();
+
+  // Interval-only training must show heatmap credit on both surfaces.
+  const workoutFixture = await page.evaluate(() => {
+    const prior = localStorage.getItem('wt_sessions_v1');
+    localStorage.setItem('wt_sessions_v1', '[]');
+    localStorage.setItem('wt_intervals_v1', JSON.stringify({ sessions: [{
+      id: 'iv-heat-only', t: Date.now(), preset: '4x4', machine: 'treadmill', roundsDone: 2,
+    }] }));
+    return prior;
+  });
+  await page.goto(BASE + '/#/insights');
+  await page.waitForSelector('.topbar');
+  check(await todaySets() === 2, 'Insights credits intervals with no workout sessions');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#iv-card');
+  check(await todaySets() === 2, 'Home credits intervals with no workout sessions');
+  await page.evaluate((prior) => {
+    localStorage.setItem('wt_sessions_v1', prior);
+    localStorage.removeItem('wt_intervals_v1');
+  }, workoutFixture);
+  await page.reload();
+  await page.waitForSelector('#iv-card');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

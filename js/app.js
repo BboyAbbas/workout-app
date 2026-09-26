@@ -5,6 +5,7 @@
    ============================================================ */
 
 import * as DB from './db.js';
+import * as IV from './intervals.js';
 import { initSync, pull, push } from './sync.js';
 import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert, scheduleWorkoutWatchdog, cancelWorkoutWatchdog } from './push.js';
 import {
@@ -157,7 +158,7 @@ function screenHome() {
       <button class="btn btn-primary btn-block" id="seed-plans">${icons.plus} Load my workout plans</button>
       <div class="spacer"></div>
       <button class="btn btn-block" data-nav="#/plan/new">${icons.plus} Create your own</button>
-      ${plankHomeCard()}
+      ${trainersBlock()}
     `;
   } else {
     const nextId = plans.length > 1 ? DB.nextPlanId() : null;
@@ -180,12 +181,12 @@ function screenHome() {
           <button class="icon-btn btn-primary" style="border-radius:12px" data-run="${p.id}" aria-label="Start">${icons.play}</button>
         </div>${REST_AFTER.includes((p.name || '').trim().toLowerCase()) ? restSep : ''}`;
     });
-    // The plank trainer sits directly under the cardio block — after the LAST
-    // cardio-only plan wherever it happens to sit in the list, or at the end
-    // when there isn't one. Position follows the data, not a hard-coded index.
+    // The trainers (intervals, plank) sit directly under the cardio block — after
+    // the LAST cardio-only plan wherever it sits in the list, or at the end when
+    // there isn't one. Position follows the data, not a hard-coded index.
     let lastCardio = -1;
     plans.forEach((p, i) => { if (DB.isCardioPlan(p)) lastCardio = i; });
-    cards.splice(lastCardio >= 0 ? lastCardio + 1 : cards.length, 0, plankHomeCard());
+    cards.splice(lastCardio >= 0 ? lastCardio + 1 : cards.length, 0, trainersBlock());
     body = cards.join('');
   }
 
@@ -265,7 +266,7 @@ function screenHome() {
       ${resumeBar}
       ${weightBar}
       ${body}
-      ${consistencyBlock(DB.getSessions())}
+      ${consistencyBlock(DB.getSessions(), DB.getIntervalSessions())}
     </main>
     ${plans.length ? `<button class="fab" data-nav="#/plan/new">${icons.plus}<span>Plan</span></button>` : ''}
   `);
@@ -1703,7 +1704,40 @@ function screenWeight() {
 const PLANK_FIRST_TARGET = 60; // no record yet -> a minute is the thing to beat
 const RING_C = 2 * Math.PI * 86; // circumference of the r=86 progress ring
 
-/** The home-screen entry point (rendered directly under the cardio block). */
+/** Home: "Trainers" — the interval card, then the plank card, under the cardio block. */
+function trainersBlock() {
+  return `<div class="section-label">Trainers</div>${intervalHomeCard()}${plankHomeCard()}`;
+}
+
+/** Home entry for the Interval Trainer: last session + sessions this week vs the 4×4 dose. */
+function intervalHomeCard() {
+  const sessions = DB.getIntervalSessions();
+  const run = DB.getIntervalActive();
+  const live = !!(run && run.phase === 'run');
+  let sub = 'Timed intervals for bursts and pace';
+  if (live) {
+    const b = IV.currentBlock(run);
+    sub = `Running · ${b ? IV.KIND_NAME[b.kind] : 'Intervals'} · tap to return`;
+  } else if (sessions.length) {
+    const s = sessions[0];
+    sub = [IV.presetById(s.preset).chip, s.pace != null ? IV.fmtPace(s.machine, s.pace) : null, fmtAgo(s.t)]
+      .filter(Boolean).join(' · ');
+  }
+  return `
+    <div class="card plank-home tappable${live ? ' iv-live' : ''}" id="iv-card" data-nav="#/intervals">
+      <div class="plank-home-icon">${icons.pulse}</div>
+      <div class="meta">
+        <p class="name">Interval Trainer</p>
+        <p class="desc">${esc(sub)}</p>
+      </div>
+      <div class="plank-home-best">
+        <b>${IV.weekCount(sessions, Date.now())}<span class="iv-of">/${IV.WEEK_TARGET}</span></b>
+        <span>this week</span>
+      </div>
+    </div>`;
+}
+
+/** The home-screen Plank Trainer card (inside the "Trainers" block). */
 function plankHomeCard() {
   const st = DB.plankStats();
   const best = st.best;
@@ -1711,7 +1745,6 @@ function plankHomeCard() {
     ? `${st.sessions} session${st.sessions === 1 ? '' : 's'} · ${fmtDuration(st.totalSec)} held in total`
     : 'Start the clock and set your first record';
   return `
-    <div class="section-label">Plank</div>
     <div class="card plank-home tappable" id="plank-card" data-nav="#/plank">
       <div class="plank-home-icon">${icons.timer}</div>
       <div class="meta">
@@ -2090,18 +2123,22 @@ function screenPlank() {
    Consistency heatmap (last 13 weeks, Mon-top columns) —
    one shared component, rendered on Home and Insights
    ============================================================ */
-function consistencyBlock(sessions) {
-  if (!sessions.length) return '';
+function consistencyBlock(sessions, ivSessions = []) {
+  if (!sessions.length && !ivSessions.length) return '';
   const startOfDay = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
   const todayStart = startOfDay(Date.now());
   const dow = (new Date().getDay() + 6) % 7;           // 0 = Monday
 
-  // sets-per-day buckets
+  // sets-per-day buckets — an interval session adds one "set" per finished hard round
   const dayCounts = {};
   for (const s of sessions) {
     const d = startOfDay(s.startedAt);
     let c = 0; for (const e of (s.entries || [])) c += (e.sets || []).length;
     dayCounts[d] = (dayCounts[d] || 0) + c;
+  }
+  for (const s of ivSessions) {
+    const r = Number(s && s.roundsDone) || 0;
+    if (r > 0) { const d = startOfDay(s.t); dayCounts[d] = (dayCounts[d] || 0) + r; }
   }
   const WEEKS = 13;
   const mondayThisWeek = todayStart - dow * 86400000;
@@ -2148,6 +2185,7 @@ function screenInsights() {
       <main class="screen">
         <div class="empty"><div class="big">${icons.chart}</div>
         <p>Finish a workout and your stats show up here.</p></div>
+        ${consistencyBlock(sessions, DB.getIntervalSessions())}
       </main>`);
     return;
   }
@@ -2208,7 +2246,7 @@ function screenInsights() {
         ${stat('Total time', fmtDuration(totalSec))}
       </div>
 
-      ${consistencyBlock(sessions)}
+      ${consistencyBlock(sessions, DB.getIntervalSessions())}
 
       <div class="section-label">Volume lifted</div>
       <div class="card">
