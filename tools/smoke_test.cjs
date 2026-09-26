@@ -1092,6 +1092,31 @@ function check(cond, msg) {
   await page.reload();
   await page.waitForSelector('#iv-card');
 
+  console.log('  · setup: presets, steppers, machines');
+  await page.locator('#iv-card').click();
+  await page.waitForSelector('#iv-start');
+  check(/#\/intervals$/.test(page.url()), 'interval route opens');
+  check((await page.locator('[data-preset]').count()) === 5, 'five preset chips');
+  check((await page.locator('[data-machine]').count()) === 2, 'two machine chips');
+  check(!/km\/h|level/i.test((await page.locator('.iv-chips2').textContent()) || ''), 'machine chips carry no unit text');
+  const hardVal = async () => ((await page.locator('#iv-v-hardSec').textContent()) || '').trim();
+  check(await hardVal() === '4:00', '4×4 opens with 4:00 hard');
+  await page.locator('[data-step="hardSec"][data-dir="1"]').click();
+  check(await hardVal() === '4:15', 'hard +15 s');
+  await page.locator('[data-preset="tabata"]').click();
+  check(await hardVal() === '0:20', 'Tabata shows its own 0:20');
+  await page.locator('[data-preset="4x4"]').click();
+  check(await hardVal() === '4:15', '4×4 remembered its edit');
+  check(await page.locator('#iv-reset').isVisible(), 'Reset to default shows after an edit');
+  await page.locator('#iv-reset').click();
+  check(await hardVal() === '4:00', 'reset restores 4:00');
+  await page.locator('[data-machine="bike"]').click();
+  await page.reload();
+  await page.waitForSelector('#iv-start');
+  check((await page.locator('[data-machine="bike"].on').count()) === 1, 'chosen machine survives a reload');
+  await page.locator('[data-machine="treadmill"]').click();
+  check(((await page.locator('.iv-prog').textContent()) || '').includes('No speed logged yet'), 'no history: no target yet');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

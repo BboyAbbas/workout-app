@@ -2120,6 +2120,188 @@ function screenPlank() {
 }
 
 /* ============================================================
+   SCREEN: Interval Trainer (#/intervals, #/intervals/finisher)
+   Setup → run → summary. The clock is pure timestamps
+   (js/intervals.js); this screen persists the run, paints it
+   and fires the cues. Sessions live in their own store — never
+   a plan, never a workout session.
+   ============================================================ */
+const IV_COLOR = { warm: 'warm', cool: 'warm', hard: 'hard', easy: 'easy' };
+
+/** Every block to scale. With a run: finished blocks fade, the current one fills. */
+function ivStrip(blocks, run = null, now = Date.now()) {
+  return `<div class="iv-strip${run ? ' live' : ''}" id="iv-strip">${blocks.map((b, i) => {
+    let st = '', done = '';
+    if (run) {
+      st = i < run.idx ? ' past' : i === run.idx ? ' now' : ' future';
+      if (i === run.idx) done = `--done:${Math.round((1 - IV.blockLeftSec(run, now) / b.sec) * 100)}%`;
+    }
+    return `<i class="${IV_COLOR[b.kind]}${st}" style="flex:${b.sec} 1 0;${done}"></i>`;
+  }).join('')}</div>`;
+}
+
+function screenIntervals(finisherRoute = false) {
+  const act = DB.getActive();
+  const from = finisherRoute && act ? { planId: act.planId, planName: act.planName } : null;
+  const cued = new Set();                // cue keys already played on this screen
+  const muted = () => DB.intervalPrefs().muted;
+  let warmOverride = null;               // finisher-only warm-up edit (never saved to the preset)
+  let paceDraft = null;                  // summary: what is typed in the speed box
+
+  function persist() { DB.setIntervalActive(run); }
+
+  const loaded = DB.getIntervalActive();
+  let run = IV.intervalResume(loaded, Date.now());
+  if (run !== loaded) {
+    if (run && run.phase === 'done' && !run.saved) finishRun(true);
+    else persist();
+    if (run && run.lastEvent === 'abandoned') toast('Ended a session you left — saved what you did');
+  }
+
+  /* ---- setup ---- */
+  function setupView() {
+    const prefs = DB.intervalPrefs();
+    const preset = IV.presetById(prefs.preset);
+    const machine = prefs.machine;
+    const m = IV.MACHINES[machine];
+    const saved = DB.intervalCfg(preset.id);
+    const warm = from ? (warmOverride ?? Math.min(saved.warmSec, IV.FINISHER_WARM_SEC)) : saved.warmSec;
+    const cfg = { ...saved, warmSec: warm };
+    const tot = IV.planTotals(cfg);
+    const sessions = DB.getIntervalSessions();
+    const last = IV.lastWithPace(sessions, preset.id, machine);
+    const target = IV.paceTarget(sessions, preset.id, machine);
+    const best = IV.bestPace(sessions, preset.id, machine);
+    const edited = !IV.sameCfg(saved, preset.cfg);
+
+    const row = (field, label, hint, dot) => `
+      <div class="iv-row">
+        <i class="iv-dot ${dot}"></i>
+        <div class="iv-row-l">${label}${hint ? `<small>${esc(hint)}</small>` : ''}</div>
+        <button class="rest-step" data-step="${field}" data-dir="-1" aria-label="Less ${label}">−</button>
+        <div class="rest-ctl-val" id="iv-v-${field}">${field === 'rounds' ? cfg.rounds : IV.fmtBlock(cfg[field])}</div>
+        <button class="rest-step" data-step="${field}" data-dir="1" aria-label="More ${label}">+</button>
+      </div>`;
+
+    const prog = last ? `
+      <div class="card iv-prog">
+        <div class="l">Last ${esc(preset.chip)} · ${esc(fmtDate(last.t))}<br><b>${esc(IV.fmtPace(machine, last.pace))}</b> · ${
+          last.roundsDone >= last.cfg.rounds ? `all ${last.cfg.rounds} rounds` : `${last.roundsDone}/${last.cfg.rounds} rounds`}</div>
+        <div class="t"><b>→ ${esc(IV.fmtPaceShort(machine, target))}</b><span>today</span></div>
+      </div>` : `
+      <div class="card iv-prog"><div class="l">No ${m.word} logged yet for ${esc(preset.chip)} on ${esc(m.name)}</div></div>`;
+
+    const stats = sessions.length ? `
+      <div class="stat-grid">
+        <div class="card stat"><div class="stat-v">${sessions.length}</div><div class="stat-l">Sessions</div></div>
+        <div class="card stat"><div class="stat-v">${IV.weekCount(sessions, Date.now())}<span class="u">/${IV.WEEK_TARGET}</span></div><div class="stat-l">This week</div></div>
+        <div class="card stat"><div class="stat-v">${esc(fmtDuration(sessions.reduce((a, s) => a + (Number(s.hardSec) || 0), 0)))}</div><div class="stat-l">Hard time</div></div>
+        <div class="card stat"><div class="stat-v">${best != null ? esc(IV.fmtPaceShort(machine, best)) : '—'}${best != null && machine === 'treadmill' ? '<span class="u">km/h</span>' : ''}</div><div class="stat-l">Best ${esc(preset.chip)} ${m.word}</div></div>
+      </div>` : '';
+
+    const history = sessions.length ? `
+      <div class="section-label">History</div>
+      ${sessions.slice(0, 20).map((s) => {
+        const p = IV.presetById(s.preset);
+        const mm = IV.MACHINES[s.machine] || IV.MACHINES.treadmill;
+        const rounds = (s.cfg && s.cfg.rounds) || s.roundsDone || 0;
+        return `
+        <div class="card hist-row plank-hist-row">
+          <div class="when">
+            <p class="date">${esc(fmtDate(s.t))}${s.after ? `<span class="iv-tag">after ${esc(s.after)}</span>` : ''}</p>
+            <p class="summary">${esc(p.chip)} · ${esc(mm.name)} · ${s.roundsDone || 0}/${rounds} rounds</p>
+          </div>
+          <div class="dur">${s.pace != null ? esc(IV.fmtPaceShort(s.machine, s.pace)) : '—'}</div>
+          <button class="icon-btn btn-danger plank-del" data-del="${esc(s.id)}" aria-label="Delete">${icons.trash}</button>
+        </div>`;
+      }).join('')}` : '';
+
+    mount(`
+      ${topbar('Intervals', {
+        back: from ? `#/plan/${from.planId}/run` : '#/',
+        sub: sessions.length ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} logged` : 'bursts and pace, on a timer',
+      })}
+      <main class="screen">
+        <div class="iv-chips5">${IV.PRESETS.map((p) =>
+          `<button class="chip-tab${p.id === preset.id ? ' on' : ''}" data-preset="${p.id}">${esc(p.chip)}</button>`).join('')}</div>
+        ${from ? `<p class="iv-finisher-note">Finisher after ${esc(from.planName)} · the workout clock keeps running</p>` : ''}
+        <div class="card iv-hero">
+          <div class="iv-hero-top">
+            <div class="iv-hero-name">${esc(preset.name)}</div>
+            <div class="iv-hero-total">${Math.round(tot.totalSec / 60)}<span> min</span></div>
+          </div>
+          <div class="iv-hero-sub"><span>${esc(preset.blurb)}</span><span>${esc(IV.fmtMinutes(tot.hardSec))} hard</span></div>
+          ${ivStrip(IV.buildBlocks(cfg))}
+        </div>
+        <div class="section-label">Timing</div>
+        <div class="card iv-rows">
+          ${row('warmSec', 'Warm-up', 'easy pace', 'warm')}
+          ${row('hardSec', 'Hard', preset.hardHint, 'hard')}
+          ${row('easySec', 'Easy', m.easyHint, 'easy')}
+          ${row('rounds', 'Rounds', '', 'none')}
+          ${row('coolSec', 'Cool-down', 'easy pace', 'warm')}
+        </div>
+        ${edited ? '<button class="btn btn-ghost plank-sub iv-reset" id="iv-reset">Reset to default</button>' : ''}
+        <div class="section-label">Machine</div>
+        <div class="iv-chips2">${IV.MACHINE_IDS.map((id) =>
+          `<button class="chip-tab${id === machine ? ' on' : ''}" data-machine="${id}">${IV.MACHINES[id].name}</button>`).join('')}</div>
+        ${prog}
+        <button class="btn btn-primary btn-block plank-cta" id="iv-start">${icons.play} Start ${esc(preset.chip)}</button>
+        <div class="spacer"></div><div class="spacer"></div>
+        ${stats}
+        ${history}
+        <div class="spacer"></div>
+      </main>
+    `);
+
+    qsa('[data-preset]').forEach((b) => b.addEventListener('click', () => {
+      DB.setIntervalPrefs({ preset: b.dataset.preset }); warmOverride = null; render();
+    }));
+    qsa('[data-machine]').forEach((b) => b.addEventListener('click', () => {
+      DB.setIntervalPrefs({ machine: b.dataset.machine }); render();
+    }));
+    qsa('[data-step]').forEach((b) => b.addEventListener('click', () => {
+      const field = b.dataset.step, dir = Number(b.dataset.dir);
+      if (from && field === 'warmSec') warmOverride = IV.stepField(field, warm, dir);
+      else DB.setIntervalCfg(preset.id, { ...saved, [field]: IV.stepField(field, saved[field], dir) });
+      render();
+    }));
+    const reset = qs('#iv-reset');
+    if (reset) reset.addEventListener('click', () => { DB.setIntervalCfg(preset.id, preset.cfg); warmOverride = null; render(); });
+    qsa('[data-del]').forEach((b) => b.addEventListener('click', () => {
+      if (!confirm('Delete this interval session?')) return;
+      DB.deleteIntervalSession(b.dataset.del); render();
+    }));
+    qs('#iv-start').addEventListener('click', () => {
+      unlockAudio(); // the Start tap is the gesture that unlocks sound for the whole run
+      run = IV.newIntervalRun({ id: DB.uid(), preset: preset.id, machine, cfg, from, target }, Date.now());
+      persist();
+      cued.clear();
+      announce(IV.currentBlock(run));
+      acquireWakeLock();
+      render();
+    });
+  }
+
+  /* ---- run + summary: Task 5 ---- */
+  function runView() { mount(`${topbar('Intervals', { back: '#/' })}<main class="screen"></main>`); }
+  function doneView() { runView(); }
+  function announce() {}
+  function finishRun() {}
+  function startTicking() {}
+
+  function render() {
+    clearTickers();
+    if (!run) return setupView();
+    if (run.phase === 'done') return doneView();
+    runView();
+    startTicking();
+  }
+
+  render();
+}
+
+/* ============================================================
    Consistency heatmap (last 13 weeks, Mon-top columns) —
    one shared component, rendered on Home and Insights
    ============================================================ */
@@ -2414,6 +2596,7 @@ function router() {
   if (parts[0] === 'insights') return screenInsights();
   if (parts[0] === 'weight') return screenWeight();
   if (parts[0] === 'plank') return screenPlank();
+  if (parts[0] === 'intervals') return screenIntervals(parts[1] === 'finisher');
   if (parts[0] === 'session') return screenSession(parts[1]);
   if (parts[0] === 'exercise') return screenExercise(decodeURIComponent(parts.slice(1).join('/')));
   if (parts[0] === 'settings') return screenSettings();
