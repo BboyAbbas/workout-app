@@ -33,7 +33,7 @@ All screens reuse existing components. New CSS uses the `iv-` prefix.
 - The Interval Trainer card has the Plank Trainer card's shape (`.plank-home`): green icon tile (new `pulse` icon), name, one grey line, one big number on the right.
   - Grey line: last session, e.g. `4×4 · 12.5 km/h · 2 days ago`. With no sessions: `Timed intervals for bursts and pace`.
   - Right: `1/2` over `THIS WEEK` — sessions this week against the target of 2.
-  - While an interval run is active: accent border and the line `Running · Hard 2:13 · tap to return`.
+  - While an interval run is active: accent border and the line `Running · Hard · tap to return` (home does not tick, so it shows no clock).
 
 ### 3.2 Live workout (finisher entry)
 - A dashed card after the last exercise, before "Session notes": `Add an interval finisher`, line `4×4 · warm-up 3:00 · → 12.5 km/h` (preset last used, speed target if one exists), green play button.
@@ -70,7 +70,7 @@ Phase colours: warm-up and cool-down `#8b93a7` (slate), hard `var(--accent)` (sa
 
 ### 3.5 Summary
 - Topbar `Intervals done`, sub `Norwegian 4×4 · Treadmill`.
-- Banner: all rounds done → green `All 4 rounds done · 16:00 hard`. New best speed after saving → gold, like a plank record.
+- Banner: all rounds done → green `All 4 rounds done · 16:00 hard`; fewer → neutral `3 of 4 rounds`. A typed speed above the best → a second, gold banner at once, like a plank record.
 - Totals card: Hard · Total · Rounds `4/4`.
 - Speed card: `Speed on the hard rounds` (bike: `Level on the hard rounds`), `−` input `+`, starts filled with today's target; empty when there is no target. Hint `Last time 12.0 · target → 12.5`.
 - Primary: standalone `Save`; finisher `Save · back to Push`. Ghost: `Skip — don't log a speed`.
@@ -98,7 +98,7 @@ Ranges and steps:
 
 Each preset remembers its own edited numbers. The chosen preset and machine are remembered.
 
-**Finisher mode:** the warm-up starts at 3:00 for that run. Warm-up edits in finisher mode apply to that run only and do not change the preset.
+**Finisher mode:** the warm-up starts at 3:00 for that run (or the preset's own warm-up when that is shorter). Warm-up edits in finisher mode apply to that run only and do not change the preset.
 
 ## 5. Behaviour
 
@@ -131,7 +131,7 @@ Per preset **and** machine. Look at the latest session of that pair with a speed
 - Otherwise → target = its speed.
 - No such session → no target.
 
-Speed input: treadmill 1.0–25.0, step 0.5, shown `12.5 km/h`; bike 1–40, step 1, shown `L14`. A saved speed above the previous best for that pair turns the banner gold (`New best 4×4 speed`). The first speed ever for that pair shows the green `First speed logged` banner.
+Speed input: treadmill 1.0–25.0, step 0.5, shown `12.5 km/h`; bike 1–40, step 1, shown `L14`. A typed speed above the previous best for that pair shows a gold `New best 4×4 speed` banner at once, and Save confirms it with a trophy toast and a buzz. The first speed ever for that pair is confirmed with the toast `First speed logged — 12.5 km/h is the one to beat`.
 
 ### 5.5 Cues
 Per block, from the remaining seconds:
@@ -148,7 +148,7 @@ The 7 s heads-up also plays before the session ends. Voice lines: warm-up `Warm 
 - Screen wake lock is held for the whole run, pause included, and released at done or on leaving the screen.
 
 ### 5.6 Finisher link
-`#/intervals/finisher` with no active workout behaves exactly like `#/intervals`. At Start in finisher mode, `from = { planId, planName }` comes from `DB.getActive()`. The session stores `after: planName`. The workout's own data is never changed. `Save · back to Push` goes to `#/plan/<planId>/run` when that workout is still active, otherwise to `#/`.
+`#/intervals/finisher` with no active workout behaves exactly like `#/intervals`. At Start in finisher mode, `from = { planId, planName }` comes from `DB.getActive()`. The session stores `after: planName`. The workout's own data is never changed, except its activity stamp: while a linked run is on screen, it calls the existing `bumpActivity()` on every 5 s heartbeat, so the workout's 50-min idle auto-finish (`AUTO_FINISH_MS`) never ends the workout during the finisher. `Save · back to Push` goes to `#/plan/<planId>/run` when that workout is still active, otherwise to `#/`.
 
 ### 5.7 Heatmap and week count
 - `consistencyBlock` takes interval sessions as a second input and adds `roundsDone` to that day's set count. Home and Insights both pass them. The block shows when either list has sessions.
