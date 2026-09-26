@@ -103,7 +103,7 @@ export async function pull() {
       DB.applyRemote(data, remote.updatedAt);
       localStorage.setItem(KEY_PUSHED, String(remote.updatedAt)); // already matches cloud
       if (onApplied) onApplied();
-      if (mergedIn) { DB.markDirty(); push(); } // cloud lacks what we kept — send it up
+      if (mergedIn) { DB.markDirty(remote.updatedAt + 1); push(); } // cloud lacks what we kept — send it up, stamped newer than the cloud
       return 'applied';
     }
     return remote && remote.updatedAt ? 'stale' : 'empty';

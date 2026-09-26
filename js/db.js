@@ -41,8 +41,11 @@ function write(key, value) {
 /* ---------- cloud-sync hooks ---------- */
 /** ms timestamp of the last local change to plans/sessions (0 if never). */
 export function getUpdatedAt() { return Number(localStorage.getItem(KEY_UPDATED)) || 0; }
-/** Mark local data as changed (forces the next push) without touching content. */
-export function markDirty() { localStorage.setItem(KEY_UPDATED, String(Date.now())); }
+/** Mark local data as changed (forces the next push) without touching content.
+ *  `floor`: never stamp below it — a pull that merged local work back in passes
+ *  the cloud stamp + 1, so a device whose clock runs behind still pushes a doc
+ *  the other devices see as NEWER (otherwise they would never pull it). */
+export function markDirty(floor = 0) { localStorage.setItem(KEY_UPDATED, String(Math.max(Date.now(), Number(floor) || 0))); }
 /* Fields this app version reads and owns. Anything ELSE in the cloud doc is
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
@@ -459,7 +462,9 @@ export function getIntervals() {
   const pr = d.prefs && typeof d.prefs === 'object' ? d.prefs : {};
   return {
     ...d, // a newer version's extra sub-fields ride along untouched
-    sessions: Array.isArray(d.sessions) ? d.sessions : [],
+    // junk from a hand-edited backup or a bad pull is dropped, so it can never
+    // make the sort in saveIntervals throw and block every later save
+    sessions: Array.isArray(d.sessions) ? d.sessions.filter((s) => s && typeof s === 'object' && s.id) : [],
     prefs: {
       ...pr,
       preset: IV.PRESETS.some((p) => p.id === pr.preset) ? pr.preset : IV.PRESETS[0].id,
@@ -545,12 +550,12 @@ export function mergeIntervalDoc(remote, local) {
   const l = local && typeof local === 'object' && Array.isArray(local.sessions) ? local : null;
   if (!l || !l.sessions.length) return remote || null;
   if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) return l;
-  const out = { ...remote, sessions: remote.sessions.map((s) => ({ ...s })) };
+  const out = { ...remote, sessions: remote.sessions.filter((s) => s && s.id).map((s) => ({ ...s })) };
   const byId = new Map(out.sessions.map((s) => [s.id, s]));
   for (const ls of l.sessions) {
     if (!ls || !ls.id) continue;
     const rs = byId.get(ls.id);
-    if (!rs) { out.sessions.push({ ...ls }); continue; }
+    if (!rs) { const copy = { ...ls }; out.sessions.push(copy); byId.set(ls.id, copy); continue; } // a repeated id collapses
     if (rs.pace == null && ls.pace != null) rs.pace = ls.pace;
   }
   out.sessions.sort((a, b) => a.t - b.t);

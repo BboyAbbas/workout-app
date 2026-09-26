@@ -1,3 +1,6 @@
 tools/shots/
 *.log
 .DS_Store
+
+# local cloud-data backups (personal data, never committed)
+backups/

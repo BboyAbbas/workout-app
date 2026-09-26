@@ -477,5 +477,51 @@ console.log('exportAll / importAll — a backup carries interval sessions:');
   eq('an old backup without intervals leaves them alone', DB.getIntervalSessions().length, 1);
 }
 
+console.log('getIntervals — junk entries from a bad backup or pull never block saving:');
+{
+  reset();
+  store.wt_intervals_v1 = JSON.stringify({ sessions: [null, 7, { id: 'ok', t: 1 }], prefs: {} });
+  eq('junk dropped on read', DB.getIntervalSessions().length, 1);
+  ok('a new run still saves', !!DB.recordIntervalSession({ id: 'new', t: 2, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null }));
+  eq('both real sessions kept', DB.getIntervalSessions().length, 2);
+}
+
+console.log('mergeIntervalDoc — duplicate ids collapse to one:');
+{
+  const m = DB.mergeIntervalDoc({ sessions: [] }, { sessions: [{ id: 'r', t: 1, pace: null }, { id: 'r', t: 1, pace: 12 }] });
+  eq('one copy', m.sessions.length, 1);
+  eq('its speed kept', m.sessions[0].pace, 12);
+}
+
+console.log('markDirty — never stamps below a floor:');
+{
+  reset();
+  const floor = Date.now() + 10 * 60000;
+  DB.markDirty(floor);
+  ok('stamp at or above the floor', DB.getUpdatedAt() >= floor);
+  DB.markDirty();
+  ok('a plain call still stamps now', DB.getUpdatedAt() <= Date.now());
+}
+
+console.log('sync.pull — merged offline data is pushed newer than the cloud (clock-skew safe):');
+{
+  reset();
+  const SYNC = await import('../js/sync.js');
+  const cloudAt = Date.now() + 10 * 60000; // the other device's clock runs ahead
+  const puts = [];
+  globalThis.fetch = async (u, opts = {}) => {
+    if (opts.method === 'PUT') { puts.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ updatedAt: cloudAt, data: { plans: [], sessions: [], intervals: { sessions: [{ id: 'cloud', t: 1 }] } } }) };
+  };
+  DB.recordIntervalSession({ id: 'local', t: 2, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  store.wt_pushed_at = '1'; // this device has work the cloud never saw
+  const st = await SYNC.pull();
+  await new Promise((r) => setTimeout(r, 50));
+  eq('pull applied', st, 'applied');
+  eq('merged doc was pushed once', puts.length, 1);
+  eq('pushed doc carries both sessions', puts[0] && puts[0].data.intervals.sessions.map((s) => s.id).sort().join(), 'cloud,local');
+  ok('pushed stamp is newer than the cloud', !!puts[0] && puts[0].updatedAt > cloudAt);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
