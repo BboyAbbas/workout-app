@@ -1293,6 +1293,59 @@ function check(cond, msg) {
   await page.locator('#iv-skip-pace').click();
   await page.waitForSelector('#iv-card');
 
+  console.log('  · finisher from a live workout, and back to it');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card [data-run]');
+  await page.locator('.plan-card [data-run]').first().click();
+  await page.waitForSelector('#logbtn');
+  const runHash = page.url().split('#')[1];
+  check(await page.locator('#iv-finisher').isVisible(), 'the live workout offers an interval finisher');
+  await page.locator('#iv-finisher').click();
+  await page.waitForSelector('#iv-start');
+  check(/#\/intervals\/finisher$/.test(page.url()), 'finisher route opens');
+  check(await page.locator('.iv-finisher-note').isVisible(), 'setup says it is a finisher after the workout');
+  await page.locator('[data-preset="4x4"]').click();
+  check(((await page.locator('#iv-v-warmSec').textContent()) || '').trim() === '3:00', 'finisher warm-up starts at 3:00');
+  check((await page.evaluate(() => JSON.parse(localStorage.getItem('wt_intervals_v1')).prefs.cfgs['4x4'])) === undefined,
+    'the 3:00 finisher warm-up is not saved into the 4×4 preset');
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage.warm');
+  // AFTER the Start tap (any tap stamps activity): make the workout look idle for
+  // 49 min, then touch nothing — only the finisher heartbeat can keep it alive
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_active_v1'));
+    a.lastActivityAt = Date.now() - 49 * 60 * 1000;
+    localStorage.setItem('wt_active_v1', JSON.stringify(a));
+  });
+  await page.waitForTimeout(5600); // one heartbeat, no taps
+  const idleMs = await page.evaluate(() => Date.now() - JSON.parse(localStorage.getItem('wt_active_v1')).lastActivityAt);
+  check(idleMs < 10000, `the finisher keeps the workout active (idle ${Math.round(idleMs / 1000)} s)`);
+  await page.locator('#iv-skip').click();                         // warm-up -> hard 1
+  await page.waitForSelector('.iv-stage.hard');
+  await page.waitForTimeout(1200);
+  await page.locator('#iv-end').click();
+  await page.waitForSelector('.plank-summary');
+  check(((await page.locator('#iv-save').textContent()) || '').includes('back to'), 'Save offers the way back to the workout');
+  await page.locator('#iv-save').click();
+  await page.waitForSelector('#logbtn');
+  check(page.url().endsWith(runHash), 'Save lands back on the live workout');
+  const fin = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions.find((s) => s.after));
+  check(!!fin && fin.after.length > 0, `the session remembers the workout it followed (${fin && fin.after})`);
+
+  console.log('  · a workout discarded meanwhile sends Save home');
+  await page.locator('#iv-finisher').click();
+  await page.waitForSelector('#iv-start');
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage');
+  await page.locator('#iv-skip').click();
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => localStorage.removeItem('wt_active_v1'));  // workout gone
+  await page.locator('#iv-end').click();
+  await page.waitForSelector('.plank-summary');
+  await page.locator('#iv-save').click();
+  await page.waitForSelector('#iv-card');
+  check(true, 'Save with no live workout goes home');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

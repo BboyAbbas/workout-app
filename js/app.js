@@ -788,6 +788,7 @@ function screenRun(planId) {
       <main class="screen" style="padding-bottom:200px">
         ${legend}
         ${exHtml}
+        ${intervalFinisherCard()}
         <div class="card">
           <p class="name" style="margin:0 0 8px;font-weight:620">Session notes</p>
           <textarea class="input" id="session-notes" rows="3" placeholder="Anything about this session — energy, pain, machine busy, whatever."
@@ -1765,6 +1766,28 @@ function intervalHomeCard() {
         <b>${IV.weekCount(sessions, Date.now())}<span class="iv-of">/${IV.WEEK_TARGET}</span></b>
         <span>this week</span>
       </div>
+    </div>`;
+}
+
+/** Live workout: the optional interval finisher, after the last exercise. */
+function intervalFinisherCard() {
+  const prefs = DB.intervalPrefs();
+  const p = IV.presetById(prefs.preset);
+  const live = DB.getIntervalActive();
+  const running = !!(live && live.phase === 'run');
+  const target = IV.paceTarget(DB.getIntervalSessions(), p.id, prefs.machine);
+  const warm = Math.min(DB.intervalCfg(p.id).warmSec, IV.FINISHER_WARM_SEC);
+  const desc = running ? 'Running · tap to return'
+    : [p.chip, `warm-up ${IV.fmtBlock(warm)}`, target != null ? `→ ${IV.fmtPace(prefs.machine, target)}` : null]
+      .filter(Boolean).join(' · ');
+  return `
+    <div class="card iv-finisher tappable" id="iv-finisher" data-nav="#/intervals/finisher">
+      <div class="plank-home-icon">${icons.pulse}</div>
+      <div class="meta">
+        <p class="name">${running ? 'Interval finisher' : 'Add an interval finisher'}</p>
+        <p class="desc">${esc(desc)}</p>
+      </div>
+      <button class="icon-btn btn-primary" style="border-radius:12px" aria-label="Start finisher">${icons.play}</button>
     </div>`;
 }
 
