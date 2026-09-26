@@ -6,6 +6,8 @@
    later without changing any UI code.
    ============================================================ */
 
+import * as IV from './intervals.js';
+
 const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
@@ -13,6 +15,8 @@ const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate
 const KEY_WEIGHTS = 'wt_weights_v1'; // body-weight log {entries:[{id,t,kg,note}], targetKg, heightCm}
 const KEY_PLANKS = 'wt_planks_v1'; // plank trainer {sessions:[{id,t,sets:[{sec,at}]}], targetSets, restSec}
 const KEY_PLANK_ACTIVE = 'wt_plank_active_v1'; // in-progress plank run, survives refresh (device-local, never synced)
+const KEY_INTERVALS = 'wt_intervals_v1'; // interval trainer {sessions:[...], prefs:{preset,machine,muted,cfgs}}
+const KEY_INTERVAL_ACTIVE = 'wt_interval_active_v1'; // in-progress interval run, survives refresh (device-local, never synced)
 const KEY_EXTRA = 'wt_remote_extra_v1'; // synced fields this app version doesn't know (see applyRemote)
 const KEY_UPDATED = 'wt_updated_at'; // ms timestamp of last plans/sessions change (for cloud sync)
 
@@ -28,7 +32,7 @@ function read(key, fallback) {
 function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   // mark data dirty + notify the sync layer when plans/sessions change
-  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS || key === KEY_PLANKS) {
+  if (key === KEY_PLANS || key === KEY_SESSIONS || key === KEY_GOAL || key === KEY_WEIGHTS || key === KEY_PLANKS || key === KEY_INTERVALS) {
     localStorage.setItem(KEY_UPDATED, String(Date.now()));
     if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
   }
@@ -43,7 +47,7 @@ export function markDirty() { localStorage.setItem(KEY_UPDATED, String(Date.now(
    from a newer version — it is preserved verbatim (KEY_EXTRA) and merged back
    into every push, so an out-of-date client can never strip a field it doesn't
    understand. */
-const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal', 'weights', 'planks'];
+const KNOWN_SYNC_FIELDS = ['plans', 'sessions', 'goal', 'weights', 'planks', 'intervals'];
 
 /** The full syncable dataset (what gets pushed to / pulled from the cloud). */
 export function snapshot() {
@@ -54,6 +58,7 @@ export function snapshot() {
     goal: getGoal(),
     weights: read(KEY_WEIGHTS, null),
     planks: read(KEY_PLANKS, null),
+    intervals: read(KEY_INTERVALS, null),
   };
 }
 /** Replace local data with a pulled remote copy (no re-dispatch -> no push loop). */
@@ -72,6 +77,10 @@ export function applyRemote(data, ts) {
     if (data.planks) localStorage.setItem(KEY_PLANKS, JSON.stringify(data.planks));
     else localStorage.removeItem(KEY_PLANKS);
   }
+  if (data && 'intervals' in data) {
+    if (data.intervals) localStorage.setItem(KEY_INTERVALS, JSON.stringify(data.intervals));
+    else localStorage.removeItem(KEY_INTERVALS);
+  }
   const extra = {};
   for (const k of Object.keys(data || {})) if (!KNOWN_SYNC_FIELDS.includes(k)) extra[k] = data[k];
   localStorage.setItem(KEY_EXTRA, JSON.stringify(extra));
@@ -84,7 +93,7 @@ export function applyRemote(data, ts) {
    the cloud doc's updatedAt moves again, because a pull at the same timestamp
    is treated as already applied (bit us 2026-07-25: 226 weight entries pulled
    by the previous app version sat parked while the weight screen showed empty). */
-const FIELD_STORES = { plans: KEY_PLANS, sessions: KEY_SESSIONS, goal: KEY_GOAL, weights: KEY_WEIGHTS, planks: KEY_PLANKS };
+const FIELD_STORES = { plans: KEY_PLANS, sessions: KEY_SESSIONS, goal: KEY_GOAL, weights: KEY_WEIGHTS, planks: KEY_PLANKS, intervals: KEY_INTERVALS };
 (function adoptParkedFields() {
   try {
     const extra = read(KEY_EXTRA, null);
@@ -434,6 +443,115 @@ export function mergePlankDoc(remote, local) {
     const have = new Set((rs.sets || []).map(setKey));
     for (const set of (ls.sets || [])) if (!have.has(setKey(set))) { rs.sets.push(set); have.add(setKey(set)); }
     rs.sets.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+  }
+  out.sessions.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/* ---------- interval trainer ----------
+   Timed intervals (4×4, sprints, …) live in their own store, like planks — never
+   in `plans` or `sessions`, so up-next, main History and the strength records
+   cannot see them. The run state machine is pure (js/intervals.js); this is
+   only storage + sync. */
+export function getIntervals() {
+  const raw = read(KEY_INTERVALS, null);
+  const d = raw && typeof raw === 'object' ? raw : {};
+  const pr = d.prefs && typeof d.prefs === 'object' ? d.prefs : {};
+  return {
+    ...d, // a newer version's extra sub-fields ride along untouched
+    sessions: Array.isArray(d.sessions) ? d.sessions : [],
+    prefs: {
+      ...pr,
+      preset: IV.PRESETS.some((p) => p.id === pr.preset) ? pr.preset : IV.PRESETS[0].id,
+      machine: IV.MACHINE_IDS.includes(pr.machine) ? pr.machine : IV.MACHINE_IDS[0],
+      muted: !!pr.muted,
+      cfgs: pr.cfgs && typeof pr.cfgs === 'object' ? pr.cfgs : {},
+    },
+  };
+}
+function saveIntervals(d) {
+  d.sessions.sort((a, b) => a.t - b.t);
+  write(KEY_INTERVALS, d);
+}
+
+export function intervalPrefs() { return getIntervals().prefs; }
+export function setIntervalPrefs({ preset, machine, muted } = {}) {
+  const d = getIntervals();
+  if (IV.PRESETS.some((p) => p.id === preset)) d.prefs.preset = preset;
+  if (IV.MACHINE_IDS.includes(machine)) d.prefs.machine = machine;
+  if (muted !== undefined) d.prefs.muted = !!muted;
+  saveIntervals(d);
+  return d.prefs;
+}
+/** The timing a preset opens with: the saved edit, else its defaults. */
+export function intervalCfg(presetId) {
+  const p = IV.presetById(presetId);
+  return IV.cleanCfg(getIntervals().prefs.cfgs[p.id] || p.cfg, p.cfg);
+}
+/** Save a preset's timing; a copy equal to the defaults is dropped. */
+export function setIntervalCfg(presetId, cfg) {
+  const p = IV.presetById(presetId);
+  const d = getIntervals();
+  const clean = IV.cleanCfg(cfg, p.cfg);
+  if (IV.sameCfg(clean, p.cfg)) delete d.prefs.cfgs[p.id];
+  else d.prefs.cfgs[p.id] = clean;
+  saveIntervals(d);
+  return clean;
+}
+
+/** Save a finished run once — the moment it ends. A second call for the same
+ *  run id is refused, so a re-render or a double tap can never double-log. */
+export function recordIntervalSession(session) {
+  if (!session || !session.id) return null;
+  const d = getIntervals();
+  if (d.sessions.some((s) => s && s.id === session.id)) return null;
+  d.sessions.push(session);
+  saveIntervals(d);
+  return session;
+}
+export function setIntervalPace(id, pace) {
+  const d = getIntervals();
+  const s = d.sessions.find((x) => x && x.id === id);
+  if (!s) return null;
+  s.pace = pace == null ? null : IV.cleanPace(s.machine, pace);
+  saveIntervals(d);
+  return s;
+}
+export function deleteIntervalSession(id) {
+  const d = getIntervals();
+  d.sessions = d.sessions.filter((s) => s && s.id !== id);
+  saveIntervals(d);
+}
+/** Interval sessions, newest first. */
+export function getIntervalSessions() {
+  return [...getIntervals().sessions].sort((a, b) => b.t - a.t);
+}
+
+/* device-local in-progress interval run (never synced) */
+export function getIntervalActive() { return read(KEY_INTERVAL_ACTIVE, null); }
+export function setIntervalActive(run) {
+  if (run) localStorage.setItem(KEY_INTERVAL_ACTIVE, JSON.stringify(run));
+  else localStorage.removeItem(KEY_INTERVAL_ACTIVE);
+}
+
+/**
+ * Union a remote interval doc with the local one (pull path in sync.js), same
+ * rule as planks: local work that never reached the cloud survives. Sessions
+ * merge by id; for a shared id the remote copy wins, but a speed entered here
+ * fills a remote gap. Remote prefs win. Only called when local has unpushed
+ * changes, so an untouched local copy still lets a remote deletion stick.
+ */
+export function mergeIntervalDoc(remote, local) {
+  const l = local && typeof local === 'object' && Array.isArray(local.sessions) ? local : null;
+  if (!l || !l.sessions.length) return remote || null;
+  if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) return l;
+  const out = { ...remote, sessions: remote.sessions.map((s) => ({ ...s })) };
+  const byId = new Map(out.sessions.map((s) => [s.id, s]));
+  for (const ls of l.sessions) {
+    if (!ls || !ls.id) continue;
+    const rs = byId.get(ls.id);
+    if (!rs) { out.sessions.push({ ...ls }); continue; }
+    if (rs.pace == null && ls.pace != null) rs.pace = ls.pace;
   }
   out.sessions.sort((a, b) => a.t - b.t);
   return out;

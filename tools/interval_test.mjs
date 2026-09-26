@@ -344,5 +344,110 @@ console.log('weekCount — sessions with a round since Monday:');
   eq('only the Monday session counts', IV.weekCount(s, wed), 1);
 }
 
+/* ---------- store + sync (js/db.js) ---------- */
+const DB = await import('../js/db.js');
+function reset() { for (const k of Object.keys(store)) delete store[k]; }
+const cfg44 = IV.presetById('4x4').cfg;
+
+console.log('store — defaults on an empty device:');
+{
+  reset();
+  const d = DB.getIntervals();
+  eq('no sessions', d.sessions.length, 0);
+  eq('4×4 preselected', d.prefs.preset, '4x4');
+  eq('treadmill preselected', d.prefs.machine, 'treadmill');
+  eq('sound on', d.prefs.muted, false);
+}
+
+console.log('prefs — preset, machine and mute are remembered; junk ignored:');
+{
+  reset();
+  DB.setIntervalPrefs({ preset: 'sprints', machine: 'bike', muted: true });
+  const p = DB.intervalPrefs();
+  eq('preset', p.preset, 'sprints');
+  eq('machine', p.machine, 'bike');
+  eq('muted', p.muted, true);
+  DB.setIntervalPrefs({ preset: 'nope', machine: 'rower' });
+  eq('bad preset ignored', DB.intervalPrefs().preset, 'sprints');
+  eq('rower is not a machine', DB.intervalPrefs().machine, 'bike');
+}
+
+console.log('cfg — each preset remembers its own numbers:');
+{
+  reset();
+  eq('default 4×4 hard', DB.intervalCfg('4x4').hardSec, 240);
+  DB.setIntervalCfg('4x4', { ...DB.intervalCfg('4x4'), hardSec: 255 });
+  eq('edited 4×4 hard', DB.intervalCfg('4x4').hardSec, 255);
+  eq('sprints untouched', DB.intervalCfg('sprints').hardSec, 30);
+  DB.setIntervalCfg('4x4', cfg44);
+  ok('back to default drops the saved copy', !('4x4' in DB.getIntervals().prefs.cfgs));
+}
+
+console.log('record — saved once, speed added later:');
+{
+  reset();
+  const done = IV.intervalStep(run44(), { type: 'tick' }, S(2400));
+  ok('recorded', !!DB.recordIntervalSession(IV.toSession(done)));
+  eq('a second record of the same run is refused', DB.recordIntervalSession(IV.toSession(done)), null);
+  eq('one session', DB.getIntervalSessions().length, 1);
+  DB.setIntervalPace('r1', '12,5');
+  eq('speed stored', DB.getIntervalSessions()[0].pace, 12.5);
+  DB.setIntervalPace('r1', null);
+  eq('speed cleared', DB.getIntervalSessions()[0].pace, null);
+  eq('unknown id', DB.setIntervalPace('nope', 12), null);
+  DB.deleteIntervalSession('r1');
+  eq('deleted', DB.getIntervalSessions().length, 0);
+}
+
+console.log('record — newest first:');
+{
+  reset();
+  DB.recordIntervalSession({ id: 'old', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 4, pace: null });
+  DB.recordIntervalSession({ id: 'new', t: 9, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 4, pace: null });
+  eq('newest first', DB.getIntervalSessions().map((s) => s.id).join(','), 'new,old');
+}
+
+console.log('sync — intervals ride the snapshot and applyRemote:');
+{
+  reset();
+  DB.recordIntervalSession({ id: 'a', t: 5, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 4, hardSec: 960, totalSec: 2400, pace: null, after: null });
+  ok('snapshot carries intervals', DB.snapshot().intervals.sessions.length === 1);
+  ok('a local interval write marks data dirty', DB.getUpdatedAt() > 0);
+  DB.applyRemote({ plans: [], sessions: [], intervals: { sessions: [{ id: 'b', t: 9 }], prefs: {} } }, 123);
+  eq('remote doc applied', DB.getIntervalSessions()[0].id, 'b');
+  ok('intervals are not parked as an unknown field', !('intervals' in JSON.parse(store.wt_remote_extra_v1 || '{}')));
+  DB.applyRemote({ plans: [], sessions: [], intervals: null }, 124);
+  eq('explicit null removes it', DB.getIntervalSessions().length, 0);
+  DB.recordIntervalSession({ id: 'c', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  DB.applyRemote({ plans: [], sessions: [] }, 125);
+  eq('a doc without the key leaves local data', DB.getIntervalSessions().length, 1);
+}
+
+console.log('mergeIntervalDoc — offline sessions survive a pull:');
+{
+  const remote = { prefs: { preset: 'tabata' }, sessions: [{ id: 'x', t: 1, pace: null }, { id: 'y', t: 3, pace: 11 }] };
+  const local = { prefs: { preset: '4x4' }, sessions: [{ id: 'x', t: 1, pace: 12 }, { id: 'z', t: 2, pace: null }] };
+  const m = DB.mergeIntervalDoc(remote, local);
+  eq('union by id, sorted by time', m.sessions.map((s) => s.id).join(','), 'x,z,y');
+  eq('local speed fills a remote gap', m.sessions[0].pace, 12);
+  eq('remote prefs win', m.prefs.preset, 'tabata');
+  ok('remote untouched when local is empty', DB.mergeIntervalDoc(remote, { sessions: [] }) === remote);
+  ok('local kept when remote has none', DB.mergeIntervalDoc(null, local) === local);
+  eq('remote speed never overwritten',
+    DB.mergeIntervalDoc({ sessions: [{ id: 'y', t: 3, pace: 11 }] }, { sessions: [{ id: 'y', t: 3, pace: 9 }] }).sessions[0].pace, 11);
+  eq('input not mutated', remote.sessions[0].pace, null);
+}
+
+console.log('active run — device-local, never synced:');
+{
+  reset();
+  DB.setIntervalActive(run44());
+  eq('stored', DB.getIntervalActive().id, 'r1');
+  ok('not in the cloud snapshot', !JSON.stringify(DB.snapshot()).includes('"r1"'));
+  eq('writing the run does not mark data dirty', DB.getUpdatedAt(), 0);
+  DB.setIntervalActive(null);
+  eq('cleared', DB.getIntervalActive(), null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

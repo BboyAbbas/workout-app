@@ -30,6 +30,10 @@ function countPlankSets(doc) {
   if (!doc || !Array.isArray(doc.sessions)) return 0;
   return doc.sessions.reduce((n, s) => n + ((s && s.sets) || []).length, 0);
 }
+function countIntervalFacts(doc) { // sessions + speeds: either one arriving means the cloud lacked it
+  if (!doc || !Array.isArray(doc.sessions)) return 0;
+  return doc.sessions.reduce((n, s) => n + 1 + (s && s.pace != null ? 1 : 0), 0);
+}
 function url() { return `${ENDPOINT}?id=${encodeURIComponent(USER_ID)}`; }
 
 /** Pull remote; if it's newer than local, apply it and re-render.
@@ -87,6 +91,13 @@ export async function pull() {
           const before = countPlankSets(data.planks);
           data.planks = DB.mergePlankDoc(data.planks, mineP);
           mergedIn += Math.max(0, countPlankSets(data.planks) - before);
+        }
+        // interval sessions recorded offline, and speeds typed in afterwards
+        const mineI = local.intervals;
+        if (mineI && Array.isArray(mineI.sessions) && mineI.sessions.length) {
+          const before = countIntervalFacts(data.intervals);
+          data.intervals = DB.mergeIntervalDoc(data.intervals, mineI);
+          mergedIn += Math.max(0, countIntervalFacts(data.intervals) - before);
         }
       }
       DB.applyRemote(data, remote.updatedAt);
