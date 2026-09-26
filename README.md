@@ -11,7 +11,7 @@ holds one shared JSON copy so the same data follows you across devices.
   target sets / a rep range / weight and a per-exercise rest length.
 - **Starter plans** — Push, Legs, Pull, Upper and Lower load themselves on a
   fresh device.
-- **Live workout** — running total timer, log reps + weight per set.
+- **Live workout** — running total timer, log reps + weight per set; add or remove sets for this workout only (removing a logged set asks first, never below one set).
 - **Progressive overload** — each exercise shows last session's actual numbers
   with a green "→ N" target: beat the reps, then the weight goes up a real,
   loadable step.

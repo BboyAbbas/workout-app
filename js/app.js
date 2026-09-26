@@ -648,6 +648,16 @@ function startRun(planId) {
   go('#/plan/' + planId + '/run');
 }
 
+/** Live workout: "− Remove set" | "+ Add set" under an exercise's rows. Remove
+ *  shows only while there is more than one set to take away. */
+function setButtons(exId, count) {
+  return `
+    <div class="btn-row" style="margin-top:8px">
+      ${count > 1 ? `<button class="btn btn-sm btn-ghost" data-rmset="${exId}" aria-label="Remove the last set">${icons.minus} Remove set</button>` : ''}
+      <button class="btn btn-sm btn-ghost" data-addset="${exId}">${icons.plus} Add set</button>
+    </div>`;
+}
+
 function screenRun(planId) {
   let active = DB.getActive();
   if (!active || active.planId !== planId) return go('#/plan/' + planId);
@@ -726,7 +736,7 @@ function screenRun(planId) {
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px">${swap}</div>
             <div class="hint-cols" style="${cols}"><span>#</span>${fields.map((f) => `<span>${esc(f.label)}</span>`).join('')}</div>
             ${crows}
-            <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
+            ${setButtons(exId, en.sets.length)}
           </div>`;
       }
 
@@ -764,7 +774,7 @@ function screenRun(planId) {
           </div>
           <div class="hint-cols"><span>#</span><span>Weight</span><span>Reps</span></div>
           ${rows}
-          <button class="btn btn-sm btn-ghost btn-block" data-addset="${exId}" style="margin-top:8px">${icons.plus} Add set</button>
+          ${setButtons(exId, en.sets.length)}
         </div>`;
     }).join('');
 
@@ -972,6 +982,22 @@ function screenRun(planId) {
         en.sets.push({ ...prev, done: false }); // carry prev fields (reps/weight or cardio settings)
         persist();
         render();
+      }));
+
+    // take the LAST set off an exercise (this workout only — the plan keeps its
+    // count). A set already logged asks first; never below one set.
+    qsa('[data-rmset]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const exId = b.dataset.rmset;
+        const en = active.entries[exId];
+        if (!en || en.sets.length <= 1) return;
+        const si = en.sets.length - 1;
+        if (en.sets[si].done && !confirm(`Remove set ${si + 1}? It's already logged.`)) return;
+        en.sets.pop();
+        if (activeSel && activeSel.exId === exId && activeSel.si >= en.sets.length) activeSel = firstPending();
+        persist();
+        render();
+        toast(`Set ${si + 1} removed`);
       }));
 
     // per-exercise rest steppers (±15s) — see changeRest
@@ -2017,9 +2043,12 @@ function screenPlank() {
         <div class="card stat"><div class="stat-v">${esc(side ? sideClock(st.last?.best) : fmtHold(st.last ? st.last.best : 0))}</div><div class="stat-l">${side ? 'Last weaker side' : 'Last session best'}</div></div>
       </div>` : '';
 
-    const chart = pts.length >= 2 ? `
+    // a side session with only one side held has no weaker side — leave it off
+    // the line instead of plotting a false zero
+    const chartPts = pts.filter((p) => p.best > 0);
+    const chart = chartPts.length >= 2 ? `
       <div class="section-label">Best hold per session${side ? ' · weaker side' : ''}</div>
-      <div class="card chart-card plank-spark">${sparkline(pts.map((p) => p.best))}</div>` : '';
+      <div class="card chart-card plank-spark">${sparkline(chartPts.map((p) => p.best))}</div>` : '';
 
     const history = hist.length ? `
       <div class="section-label">History</div>

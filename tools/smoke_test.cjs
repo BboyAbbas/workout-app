@@ -125,6 +125,35 @@ function check(cond, msg) {
   await page.waitForFunction(() => window.__vibes.length > 0, null, { timeout: 5000 });
   check(true, 'vibration fired at rest end');
 
+  console.log('\n[5b] Remove set — the last set of an exercise, never below one');
+  const ex0 = () => page.locator('.run-ex').first();
+  const rows0 = () => ex0().locator('.set-row').count();
+  const storedSets = () => page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('wt_active_v1')).entries)
+    .reduce((n, en) => n + en.sets.length, 0));
+  const n0 = await rows0();
+  const s0 = await storedSets();
+  await ex0().locator('[data-addset]').click();
+  check(await rows0() === n0 + 1, 'Add set adds a row');
+  await ex0().locator('[data-rmset]').click();
+  check(await rows0() === n0, 'Remove set takes the last row off');
+  check(await storedSets() === s0, 'the removal is saved with the workout');
+  while (await rows0() > 1) await ex0().locator('[data-rmset]').click();
+  check(await ex0().locator('[data-rmset]').count() === 0, 'no Remove button once one set is left');
+  // a LOGGED last set asks first
+  await ex0().locator('[data-addset]').click();
+  await ex0().locator('[data-select][data-si="1"]').click();
+  await ex0().locator('.set-row[data-si="1"] [data-f="reps"]').fill('8');
+  await ex0().locator('.set-row[data-si="1"] [data-f="weight"]').fill('20');
+  await page.locator('#logbtn').click();
+  await page.waitForSelector('.run-ex .set-row.done[data-si="1"]');
+  await page.evaluate(() => { window.__origConfirm = window.confirm; window.__asked = []; window.confirm = (m) => { window.__asked.push(m); return false; }; });
+  await ex0().locator('[data-rmset]').click();
+  check(await rows0() === 2 && (await page.evaluate(() => window.__asked.length)) === 1, 'removing a logged set asks first, and No keeps it');
+  await page.evaluate(() => { window.confirm = () => true; });
+  await ex0().locator('[data-rmset]').click();
+  check(await rows0() === 1, 'Yes removes the logged set');
+  await page.evaluate(() => { window.confirm = window.__origConfirm; });
+
   console.log('\n[6] Finish -> history');
   await page.locator('#finish').click();
   await page.waitForSelector('.hist-row', { timeout: 3000 });

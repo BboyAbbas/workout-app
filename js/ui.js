@@ -88,6 +88,7 @@ const svg = (paths, extra = '') =>
 
 export const icons = {
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  minus: svg('<path d="M5 12h14"/>'),
   back: svg('<path d="M15 18l-6-6 6-6"/>'),
   play: svg('<path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/>'),
   trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
