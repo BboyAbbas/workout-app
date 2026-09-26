@@ -331,7 +331,9 @@ console.log('paceTarget — one step up only after a full session:');
   eq('other machine ignored', IV.paceTarget([mk('a', 1, 12, 4, 'bike')], '4x4', 'treadmill'), null);
   eq('other preset ignored', IV.paceTarget([mk('a', 1, 12, 4, 'treadmill', 'sprints')], '4x4', 'treadmill'), null);
   eq('bike +1 level', IV.paceTarget([mk('a', 1, 14, 4, 'bike')], '4x4', 'bike'), 15);
-  eq('best pace', IV.bestPace([mk('a', 1, 12, 4), mk('b', 2, 12.5, 2)], '4x4', 'treadmill'), 12.5);
+  eq('best pace counts only full sessions', IV.bestPace([mk('a', 1, 12, 4), mk('b', 2, 12.5, 2)], '4x4', 'treadmill'), 12);
+  eq('best pace from full sessions', IV.bestPace([mk('a', 1, 12, 4), mk('b', 2, 12.5, 4)], '4x4', 'treadmill'), 12.5);
+  eq('no best from partial sessions only', IV.bestPace([mk('a', 1, 13, 1)], '4x4', 'treadmill'), null);
   eq('no best without speeds', IV.bestPace([mk('a', 1, null, 4)], '4x4', 'treadmill'), null);
 }
 

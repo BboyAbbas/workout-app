@@ -282,8 +282,12 @@ export function paceTarget(sessions, preset, machine) {
   const full = last.roundsDone >= ((last.cfg && last.cfg.rounds) || Infinity);
   return full ? cleanPace(machine, last.pace + (MACHINES[machine] || MACHINES.treadmill).step) : last.pace;
 }
+/** The record: the highest speed from a session that finished every round —
+ *  a partial 4×4 is not a 4×4 record. */
 export function bestPace(sessions, preset, machine) {
-  const p = withPace(sessions, preset, machine).map((s) => Number(s.pace));
+  const p = withPace(sessions, preset, machine)
+    .filter((s) => (Number(s.roundsDone) || 0) >= ((s.cfg && s.cfg.rounds) || Infinity))
+    .map((s) => Number(s.pace));
   return p.length ? Math.max(...p) : null;
 }
 /** Sessions with at least one round since Monday 00:00 local (the heatmap's week). */

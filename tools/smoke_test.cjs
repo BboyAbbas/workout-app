@@ -1233,6 +1233,27 @@ function check(cond, msg) {
   check(await page.evaluate(() => window.__spoken.length === 0), 'Leaving cancels pending switch voice');
   await page.evaluate(() => localStorage.removeItem('wt_interval_active_v1'));
 
+  console.log('  · restarting a block plays its 7 s warning again');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_intervals_v1'));
+    d.prefs.preset = 'custom'; d.prefs.muted = true;
+    d.prefs.cfgs.custom = { warmSec: 0, hardSec: 12, easySec: 5, rounds: 1, coolSec: 0 };
+    localStorage.setItem('wt_intervals_v1', JSON.stringify(d));
+  });
+  await page.goto(BASE + '/#/intervals');
+  await page.waitForSelector('#iv-start');
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage.hard');
+  const headsUps = () => page.evaluate(() => window.__vibes.filter((v) => v === 150).length);
+  await page.waitForFunction(() => window.__vibes.filter((v) => v === 150).length === 1, null, { timeout: 9000 });
+  await page.locator('#iv-back').click();                   // 5 s in (> 3 s): restart the same block
+  await page.waitForFunction(() => window.__vibes.filter((v) => v === 150).length === 2, null, { timeout: 9000 }).catch(() => {});
+  check(await headsUps() === 2, `the 7 s warning plays again after a restart (${await headsUps()} warnings)`);
+  await page.locator('#iv-end').click();
+  await page.waitForSelector('.plank-summary');
+  await page.locator('#iv-skip-pace').click();
+  await page.waitForSelector('#iv-card');
+
   console.log('  · workout linkage is checked at Start and Save');
   await page.locator('.plan-card [data-run]').first().click();
   await page.waitForSelector('#logbtn');

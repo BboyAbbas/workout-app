@@ -131,7 +131,7 @@ Per preset **and** machine. Look at the latest session of that pair with a speed
 - Otherwise → target = its speed.
 - No such session → no target.
 
-Speed input: treadmill 1.0–25.0, step 0.5, shown `12.5 km/h`; bike 1–40, step 1, shown `L14`. A typed speed above the previous best for that pair shows a gold `New best 4×4 speed` banner at once, and Save confirms it with a trophy toast and a buzz. The first speed ever for that pair is confirmed with the toast `First speed logged — 12.5 km/h is the one to beat`.
+Speed input: treadmill 1.0–25.0, step 0.5, shown `12.5 km/h`; bike 1–40, step 1, shown `L14`. The record ("Best 4×4 speed") counts only sessions that finished every round — a partial 4×4 is not a 4×4 record. On a full session, a typed speed above that record shows a gold `New best 4×4 speed` banner at once, and Save confirms it with a trophy toast and a buzz. The first full-session speed for that pair is confirmed with the toast `First speed logged — 12.5 km/h is the one to beat`.
 
 ### 5.5 Cues
 Per block, from the remaining seconds:

@@ -2363,6 +2363,9 @@ function screenIntervals(finisherRoute = false) {
     if (run.phase === 'done') { finishRun(wasPaused); render(); return; }
     persist();
     if (ev === 'paused' || ev === 'restart') cancelVoice();
+    if (ev === 'switch' || ev === 'restart') { // a block entered again gets its warnings again
+      for (const k of [...cued]) if (k.startsWith(`${run.idx}:`)) cued.delete(k);
+    }
     if (ev === 'switch') { announce(IV.currentBlock(run)); render(); return; }
     if (ev === 'restart' || ev === 'paused' || ev === 'resumed') render();
   }
@@ -2557,9 +2560,9 @@ function screenIntervals(finisherRoute = false) {
     `);
 
     const input = qs('#iv-pace-val');
-    const showPB = () => { // live gold banner while the typed speed beats the best
+    const showPB = () => { // live gold banner while the typed speed beats the best (full sessions only)
       const v = input ? IV.cleanPace(run.machine, input.value) : null;
-      const beat = v != null && bestPrior != null && v > bestPrior;
+      const beat = all && v != null && bestPrior != null && v > bestPrior;
       const pb = qs('#iv-pb');
       if (pb) pb.style.display = beat ? '' : 'none';
       const pv = qs('#iv-pb-v');
@@ -2591,7 +2594,7 @@ function screenIntervals(finisherRoute = false) {
           if (beat) {
             if (navigator.vibrate) navigator.vibrate([120, 60, 120, 60, 320]);
             toast(`🏆 New best ${preset.chip} ${m.word} — ${IV.fmtPace(run.machine, v)}`);
-          } else if (bestPrior == null) {
+          } else if (all && bestPrior == null) {
             toast(`First ${m.word} logged — ${IV.fmtPace(run.machine, v)} is the one to beat`);
           } else toast(`Saved — ${IV.fmtPace(run.machine, v)}`);
         }
