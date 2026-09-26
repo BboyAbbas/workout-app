@@ -34,6 +34,11 @@ function check(cond, msg) {
   await page.addInitScript(() => {
     window.__vibes = [];
     navigator.vibrate = (p) => { window.__vibes.push(p); return true; };
+    window.__spoken = [];
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.speak = (u) => { window.__spoken.push(u.text); };
+      window.speechSynthesis.cancel = () => {};
+    }
     // belt-and-braces: even a request that slips past the route stub (e.g. via
     // the service worker) may only ever touch a TEST doc, never abbas-main
     try { localStorage.setItem('wt_sync_id', 'smoke-test'); } catch (_) {}
@@ -1116,6 +1121,177 @@ function check(cond, msg) {
   check((await page.locator('[data-machine="bike"].on').count()) === 1, 'chosen machine survives a reload');
   await page.locator('[data-machine="treadmill"]').click();
   check(((await page.locator('.iv-prog').textContent()) || '').includes('No speed logged yet'), 'no history: no target yet');
+
+  console.log('  · run a tiny custom session end to end');
+  // Custom made tiny so the run takes seconds: no warm-up, 5 s hard, 5 s easy, 2 rounds, no cool-down
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_intervals_v1') || '{}');
+    d.prefs = { ...(d.prefs || {}), preset: 'custom', machine: 'treadmill', muted: true,
+      cfgs: { custom: { warmSec: 0, hardSec: 5, easySec: 5, rounds: 2, coolSec: 0 } } };
+    d.sessions = d.sessions || [];
+    localStorage.setItem('wt_intervals_v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForSelector('#iv-start');
+  await page.evaluate(() => { window.__vibes = []; });
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage.hard');
+  check(((await page.locator('.topbar h1').textContent()) || '').trim() === 'Hard', 'run opens on the hard block');
+  check((await page.locator('#iv-strip i').count()) === 3, 'strip shows 3 blocks (hard, easy, hard)');
+  check((await page.evaluate(() => JSON.parse(localStorage.getItem('wt_interval_active_v1') || 'null'))) !== null,
+    'the run is persisted on the device');
+  const tA = await page.locator('.iv-time').textContent();
+  await page.waitForTimeout(1300);
+  check(tA !== await page.locator('.iv-time').textContent(), 'countdown ticks');
+
+  console.log('  · pause freezes, reload keeps it paused');
+  await page.locator('#iv-pause').click();
+  await page.waitForSelector('.iv-stage.paused');
+  const pA = await page.locator('.iv-time').textContent();
+  await page.waitForTimeout(1300);
+  check(pA === await page.locator('.iv-time').textContent(), 'paused clock does not move');
+  await page.reload();
+  await page.waitForSelector('.iv-stage.paused', { timeout: 4000 });
+  check(true, 'a paused run is still paused after a reload');
+  await page.locator('#iv-pause').click();
+  await page.waitForSelector('.iv-stage.hard:not(.paused)');
+
+  console.log('  · a router re-render mid-run keeps the run and records nothing');
+  await page.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
+  await page.waitForSelector('.iv-stage', { timeout: 4000 });
+  check((await page.evaluate(() => (JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions || []).length)) === 0,
+    'nothing recorded mid-run');
+
+  console.log('  · skip, then let the clock finish it');
+  await page.locator('#iv-skip').click();                     // hard 1 (<90 %) -> easy 1
+  await page.waitForSelector('.iv-stage.easy');
+  check((await page.evaluate(() => window.__vibes.length)) > 0, 'a switch buzzes even when muted');
+  await page.waitForSelector('.iv-stage.hard', { timeout: 9000 });     // easy runs out on its own
+  await page.waitForSelector('.plank-summary', { timeout: 9000 });     // last hard runs out -> summary
+  const ivSaved = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions);
+  check(ivSaved.length === 1 && ivSaved[0].roundsDone === 1,
+    `saved the moment it ended (${ivSaved.length} session, ${ivSaved[0] && ivSaved[0].roundsDone} round)`);
+  check(ivSaved[0].pace === null, 'speed stays empty until entered');
+  check(((await page.locator('.plank-pb-banner').first().textContent()) || '').includes('1 of 2'), 'banner: 1 of 2 rounds');
+  await page.reload();
+  await page.waitForSelector('#iv-pace-val', { timeout: 4000 });
+  check(true, 'the summary survives a reload (the speed box is still there)');
+
+  console.log('  · speed entry, then home');
+  await page.fill('#iv-pace-val', '12,5');
+  await page.locator('#iv-save').click();
+  await page.waitForSelector('#iv-card');
+  const ivOne = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions[0]);
+  check(ivOne.pace === 12.5, 'speed saved (comma decimal accepted)');
+  check((await page.evaluate(() => localStorage.getItem('wt_interval_active_v1'))) === null, 'the finished run is cleared');
+  check(((await page.locator('#iv-card .plank-home-best').textContent()) || '').replace(/\s+/g, '').startsWith('1/2'), 'week count now 1/2');
+  check(((await page.locator('#iv-card .desc').textContent()) || '').includes('12.5 km/h'), 'home card shows the last speed');
+  check(await todaySets() === heatBefore + 1, `heatmap credits the finished round (${heatBefore} -> ${await todaySets()})`);
+  const ivNotWorkout = await page.evaluate(() => ({
+    plans: JSON.parse(localStorage.getItem('wt_plans_v1') || '[]').some((p) => /interval/i.test(p.name || '')),
+    sessions: JSON.parse(localStorage.getItem('wt_sessions_v1') || '[]').some((s) => /interval/i.test(s.planName || '')),
+  }));
+  check(!ivNotWorkout.plans && !ivNotWorkout.sessions, 'intervals never become a plan or a workout session');
+  const snapIv = await page.evaluate(async () => { const DB = await import('./js/db.js'); return DB.snapshot().intervals.sessions.length; });
+  check(snapIv === 1, 'intervals ride the cloud snapshot');
+
+  console.log('  · pending cues respect pause, mute and leaving the screen');
+  const startCueRun = async () => {
+    await page.goto(BASE + '/#/');
+    await page.waitForSelector('#iv-card');
+    await page.evaluate(() => {
+      localStorage.removeItem('wt_interval_active_v1');
+      const d = JSON.parse(localStorage.getItem('wt_intervals_v1'));
+      d.prefs.preset = 'custom'; d.prefs.muted = false;
+      d.prefs.cfgs.custom = { warmSec: 0, hardSec: 30, easySec: 15, rounds: 2, coolSec: 0 };
+      localStorage.setItem('wt_intervals_v1', JSON.stringify(d));
+      window.__spoken = []; window.__vibes = [];
+    });
+    await page.goto(BASE + '/#/intervals');
+    await page.waitForSelector('#iv-start');
+    await page.locator('#iv-start').click();
+    await page.waitForSelector('.iv-stage.hard');
+  };
+  await startCueRun();
+  await page.locator('#iv-pause').click();
+  await page.waitForTimeout(650);
+  check(await page.evaluate(() => window.__spoken.length === 0), 'Pause cancels pending switch voice');
+  await page.evaluate(() => { window.__spoken = []; window.__vibes = []; });
+  await page.locator('#iv-skip').click();
+  await page.waitForSelector('.iv-stage.easy.paused');
+  await page.waitForTimeout(650);
+  check(await page.evaluate(() => window.__spoken.length === 0 && window.__vibes.length === 0),
+    'Skip while paused changes blocks without cues');
+  await startCueRun();
+  await page.locator('#iv-mute').click();
+  await page.waitForTimeout(650);
+  check(await page.evaluate(() => window.__spoken.length === 0), 'Mute cancels pending switch voice');
+  await startCueRun();
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#iv-card');
+  await page.waitForTimeout(650);
+  check(await page.evaluate(() => window.__spoken.length === 0), 'Leaving cancels pending switch voice');
+  await page.evaluate(() => localStorage.removeItem('wt_interval_active_v1'));
+
+  console.log('  · workout linkage is checked at Start and Save');
+  await page.locator('.plan-card [data-run]').first().click();
+  await page.waitForSelector('#logbtn');
+  await page.goto(BASE + '/#/intervals/finisher');
+  await page.waitForSelector('#iv-start');
+  await page.evaluate(() => localStorage.removeItem('wt_active_v1'));
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage');
+  check(await page.evaluate(() => JSON.parse(localStorage.getItem('wt_interval_active_v1')).from === null),
+    'Start does not link to a workout removed during setup');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#iv-card');
+  await page.evaluate(() => localStorage.removeItem('wt_interval_active_v1'));
+  await page.locator('.plan-card [data-run]').first().click();
+  await page.waitForSelector('#logbtn');
+  await page.goto(BASE + '/#/intervals/finisher');
+  await page.waitForSelector('#iv-start');
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage.hard');
+  await page.waitForTimeout(1200);
+  await page.locator('#iv-end').click();
+  await page.waitForSelector('.plank-summary');
+  const lateLink = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_interval_active_v1')));
+  await page.evaluate(() => localStorage.removeItem('wt_active_v1'));
+  await page.locator('#iv-save').click();
+  await page.waitForSelector('.topbar');
+  await page.waitForTimeout(300);
+  check(page.url().endsWith('/#/'), 'Save goes home if the workout disappears after summary renders');
+  check(await page.evaluate(({ id, from }) => {
+    const saved = JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions.find((s) => s.id === id);
+    return saved && saved.after === from.planName;
+  }, lateLink), 'Late workout removal preserves the saved after label');
+
+  console.log('  · a phone away for minutes lands on the right block');
+  await page.goto(BASE + '/#/intervals');
+  await page.waitForSelector('#iv-start');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_intervals_v1'));
+    d.prefs.cfgs.custom = { warmSec: 0, hardSec: 240, easySec: 180, rounds: 4, coolSec: 0 };
+    localStorage.setItem('wt_intervals_v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForSelector('#iv-start');
+  await page.locator('#iv-start').click();
+  await page.waitForSelector('.iv-stage.hard');
+  await page.evaluate(() => { // pretend 9 min passed (hard 4 + easy 3 + 2 min into hard 2) while seen recently
+    const a = JSON.parse(localStorage.getItem('wt_interval_active_v1'));
+    const shift = 9 * 60 * 1000;
+    a.startedAt -= shift; a.blockStartAt -= shift; a.seenAt = Date.now() - 2000;
+    localStorage.setItem('wt_interval_active_v1', JSON.stringify(a));
+  });
+  await page.reload();
+  await page.waitForSelector('.iv-stage.hard', { timeout: 4000 });
+  const away = ((await page.locator('.topbar .sub').textContent()) || '');
+  check(/Round 2 of 4/.test(away), `caught up to round 2 (${away.trim()})`);
+  await page.locator('#iv-end').click();
+  await page.waitForSelector('.plank-summary');
+  await page.locator('#iv-skip-pace').click();
+  await page.waitForSelector('#iv-card');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

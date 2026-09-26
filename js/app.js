@@ -84,6 +84,37 @@ function playBeep() { // three loud rising chirps on the audio clock
     }
   } catch (_) {}
 }
+/* interval cues: 'heads' = two-note warning (7 s left), 'tick' = 3-2-1 blip, 'switch' = long tone */
+function playTone(kind) {
+  if (!audioCtx) unlockAudio();
+  if (!audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    const notes = kind === 'heads' ? [[660, 0, 0.16], [880, 0.2, 0.16]]
+      : kind === 'tick' ? [[1046, 0, 0.09]]
+        : [[988, 0, 0.7]];
+    for (const [freq, at, len] of notes) {
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const start = t0 + at, end = start + len;
+      osc.frequency.setValueAtTime(freq, start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.7, start + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, end);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(start); osc.stop(end + 0.05);
+    }
+  } catch (_) {}
+}
+function speak(text) { // the phone's own offline voice; silently absent on phones without one
+  try {
+    if (!text || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US'; u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  } catch (_) {}
+}
 function mediaSession(on) { // gives the rest timer lock-screen presence while audio plays
   try {
     if (!('mediaSession' in navigator)) return;
@@ -2147,6 +2178,20 @@ function screenIntervals(finisherRoute = false) {
   const muted = () => DB.intervalPrefs().muted;
   let warmOverride = null;               // finisher-only warm-up edit (never saved to the preset)
   let paceDraft = null;                  // summary: what is typed in the speed box
+  let voiceTimer = null;
+  let screenActive = true;
+
+  function cancelVoice() {
+    clearTimeout(voiceTimer); voiceTimer = null;
+    try { window.speechSynthesis.cancel(); } catch (_) {}
+  }
+  function queueVoice(line, delay) {
+    const { id, phase, idx } = run;
+    voiceTimer = setTimeout(() => {
+      voiceTimer = null;
+      if (screenActive && run && run.id === id && run.phase === phase && run.idx === idx && !run.pausedAt && !muted()) speak(line);
+    }, delay);
+  }
 
   function persist() { DB.setIntervalActive(run); }
 
@@ -2274,6 +2319,8 @@ function screenIntervals(finisherRoute = false) {
     }));
     qs('#iv-start').addEventListener('click', () => {
       unlockAudio(); // the Start tap is the gesture that unlocks sound for the whole run
+      const active = DB.getActive();
+      const from = finisherRoute && active ? { planId: active.planId, planName: active.planName } : null;
       run = IV.newIntervalRun({ id: DB.uid(), preset: preset.id, machine, cfg, from, target }, Date.now());
       persist();
       cued.clear();
@@ -2283,12 +2330,254 @@ function screenIntervals(finisherRoute = false) {
     });
   }
 
-  /* ---- run + summary: Task 5 ---- */
-  function runView() { mount(`${topbar('Intervals', { back: '#/' })}<main class="screen"></main>`); }
-  function doneView() { runView(); }
-  function announce() {}
-  function finishRun() {}
-  function startTicking() {}
+  /* ---- one action through the pure state machine, then the side effects ---- */
+  function apply(action) {
+    const wasPaused = !!(run && run.pausedAt);
+    const next = IV.intervalStep(run, action, Date.now());
+    if (next === run) return;
+    run = next;
+    const ev = run.lastEvent;
+    if (run.phase === 'done') { finishRun(wasPaused); render(); return; }
+    persist();
+    if (ev === 'paused' || ev === 'restart') cancelVoice();
+    if (ev === 'switch') { announce(IV.currentBlock(run)); render(); return; }
+    if (ev === 'restart' || ev === 'paused' || ev === 'resumed') render();
+  }
+
+  /** Switch cue: no cues while paused; otherwise buzz, plus sound unless muted. */
+  function announce(block) {
+    cancelVoice();
+    if (run.pausedAt) return;
+    if (navigator.vibrate) navigator.vibrate([400, 120, 400]);
+    if (muted()) return;
+    playTone('switch');
+    const line = IV.voiceLine(block, run, IV.spokenPace(run.machine, block && block.kind === 'hard' ? run.target : null));
+    queueVoice(line, 450);
+  }
+
+  /** The run just ended: record it once (quiet when it ended while away). */
+  function finishRun(quiet) {
+    cancelVoice();
+    if (!run.saved) {
+      run.saved = true;
+      run.recorded = IV.runStats(run).hardSec >= 1;
+      if (run.recorded) DB.recordIntervalSession(IV.toSession(run));
+      else toast('Nothing logged — no hard block run');
+      if (!quiet) {
+        if (navigator.vibrate) navigator.vibrate([400, 120, 400]);
+        if (!muted()) { playBeep(); queueVoice(IV.voiceLine(null, run), 1500); }
+      }
+    }
+    persist();
+    releaseWakeLock();
+  }
+
+  function roundSub(b) {
+    const n = run.cfg.rounds;
+    if (b.kind === 'hard') return `Round ${b.round} of ${n}`;
+    if (b.kind === 'easy') return `Round ${b.round} of ${n}`;
+    return b.kind === 'warm' ? 'Warm-up first' : 'Last block';
+  }
+  function midLine(b) {
+    const n = run.cfg.rounds;
+    if (b.kind === 'hard') return `round ${b.round} of ${n}`;
+    if (b.kind === 'easy') return `round ${b.round + 1} next`;
+    return b.kind === 'warm' ? `${n} rounds ahead` : 'last block';
+  }
+
+  /* ---- run ---- */
+  function runView() {
+    const b = IV.currentBlock(run);
+    const now = Date.now();
+    const back = run.from ? `#/plan/${run.from.planId}/run` : '#/';
+    mount(`
+      ${topbar(IV.KIND_NAME[b.kind], {
+        back,
+        sub: `${roundSub(b)} · ${fmtClock(IV.sessionLeftSec(run, now))} left`,
+        right: `<button class="icon-btn" id="iv-mute" aria-label="${muted() ? 'Sound off' : 'Sound on'}">${muted() ? icons.muted : icons.sound}</button>`,
+      })}
+      <main class="screen plank-screen">
+        <div class="iv-stage ${IV_COLOR[b.kind]}${run.pausedAt ? ' paused' : ''}" id="iv-stage">
+          ${ivStrip(IV.buildBlocks(run.cfg), run, now)}
+          ${plankRing(1)}
+          <div class="iv-pace${b.kind === 'hard' && run.target != null ? '' : ' off'}" id="iv-pace">Hold <b>${esc(IV.fmtPace(run.machine, run.target))}</b></div>
+          <div class="card iv-next" id="iv-next"></div>
+          <div class="iv-ctrl">
+            <button class="btn iv-side" id="iv-back" aria-label="Restart block">${icons.prev}</button>
+            <button class="btn btn-primary" id="iv-pause">${run.pausedAt ? `${icons.play} Resume` : `${icons.pause} Pause`}</button>
+            <button class="btn iv-side" id="iv-skip" aria-label="Skip block">${icons.next}</button>
+          </div>
+          <button class="btn btn-ghost plank-sub" id="iv-end">End session</button>
+        </div>
+      </main>
+    `);
+    qs('#iv-pause').addEventListener('click', () => apply({ type: run.pausedAt ? 'resume' : 'pause' }));
+    qs('#iv-skip').addEventListener('click', () => apply({ type: 'skip' }));
+    qs('#iv-back').addEventListener('click', () => apply({ type: 'back' }));
+    qs('#iv-end').addEventListener('click', () => {
+      if (confirm('End the session? Rounds you finished are saved.')) apply({ type: 'end' });
+    });
+    qs('#iv-mute').addEventListener('click', () => {
+      DB.setIntervalPrefs({ muted: !muted() });
+      if (muted()) cancelVoice();
+      render();
+    });
+  }
+
+  /* live redraw: numbers, ring, strip, next card — never the whole screen */
+  function paint() {
+    if (!run || run.phase !== 'run') return;
+    const now = Date.now();
+    const b = IV.currentBlock(run);
+    const nb = IV.nextBlock(run);
+    const left = IV.blockLeftSec(run, now);
+    const soon = !run.pausedAt && b.sec > 10 && left <= IV.HEADS_UP_SEC;
+    const m = IV.MACHINES[run.machine];
+
+    const mid = qs('#plank-ring-mid');
+    if (mid) mid.innerHTML = `<div class="iv-phase">${IV.KIND_WORD[b.kind]}</div><div class="iv-time">${fmtClock(left)}</div><div class="iv-round">${midLine(b)}</div>`;
+    const fill = qs('#plank-ring-fill');
+    if (fill) fill.setAttribute('stroke-dashoffset', String((RING_C * (1 - left / b.sec)).toFixed(1)));
+    const cur = qs('#iv-strip .now');
+    if (cur) cur.style.setProperty('--done', `${Math.round((1 - left / b.sec) * 100)}%`);
+    const sub = qs('.topbar .sub');
+    if (sub) sub.textContent = `${roundSub(b)} · ${fmtClock(IV.sessionLeftSec(run, now))} left`;
+    const stage = qs('#iv-stage');
+    if (stage) stage.classList.toggle('soon', soon);
+
+    const next = qs('#iv-next');
+    if (next) {
+      next.className = `card iv-next ${IV_COLOR[nb ? nb.kind : 'cool']}${soon ? ' soon' : ''}`;
+      if (!nb) {
+        next.innerHTML = `<div><div class="k">${soon ? 'Almost done' : 'Next'}</div><div class="v">Finish</div></div>`;
+      } else if (soon) {
+        const setIt = nb.kind === 'hard' && run.target != null
+          ? `<div class="r">set the ${m.word}<br><b>${esc(IV.fmtPace(run.machine, run.target))}</b></div>` : '';
+        next.innerHTML = `<div><div class="k">Get ready</div><div class="v"><span>${IV.KIND_NAME[nb.kind]}</span> in ${left}</div></div>${setIt}`;
+      } else {
+        const note = nb.kind === 'hard' ? `round ${nb.round} of ${run.cfg.rounds}`
+          : nb.kind === 'easy' ? `then round ${nb.round + 1}` : 'then done';
+        next.innerHTML = `<div><div class="k">Next</div><div class="v"><span>${IV.KIND_NAME[nb.kind]}</span> ${IV.fmtBlock(nb.sec)}</div></div><div class="r">${note}</div>`;
+      }
+    }
+
+    // cues: each (block, second) plays once; vibration even when muted
+    if (!run.pausedAt) {
+      const cue = IV.cueAt(b.sec, left);
+      const key = `${run.idx}:${left}`;
+      if (cue && !cued.has(key)) {
+        cued.add(key);
+        if (!muted()) playTone(cue);
+        if (cue === 'heads' && navigator.vibrate) navigator.vibrate(150);
+      }
+      if (left <= 0) apply({ type: 'tick' });
+    }
+  }
+
+  function startTicking() {
+    addTicker(setInterval(paint, 250));
+    addTicker(setInterval(() => {
+      apply({ type: 'heartbeat' });
+      // a finisher keeps its workout alive, so the idle auto-finish never ends it mid-run
+      const a = run && run.from ? DB.getActive() : null;
+      if (a && a.planId === run.from.planId) bumpActivity();
+    }, IV.HEARTBEAT_MS));
+    paint();
+  }
+
+  /* ---- summary ---- */
+  function doneView() {
+    const st = IV.runStats(run);
+    const preset = IV.presetById(run.preset);
+    const m = IV.MACHINES[run.machine];
+    const prior = DB.getIntervalSessions().filter((s) => s.id !== run.id);
+    const lastP = IV.lastWithPace(prior, run.preset, run.machine);
+    const bestPrior = IV.bestPace(prior, run.preset, run.machine);
+    const a = DB.getActive();
+    const backHash = run.from && a && a.planId === run.from.planId ? `#/plan/${run.from.planId}/run` : null;
+    const val = paceDraft ?? IV.fmtPaceInput(run.machine, run.target);
+    const all = st.roundsDone >= run.cfg.rounds;
+    const primary = run.recorded
+      ? (backHash ? `Save · back to ${esc(run.from.planName)}` : 'Save')
+      : (backHash ? `Back to ${esc(run.from.planName)}` : 'Done');
+
+    mount(`
+      ${topbar('Intervals done', { back: '#/', sub: `${preset.name} · ${m.name}` })}
+      <main class="screen plank-screen">
+        <div class="plank-stage plank-summary">
+          <div class="plank-pb-banner first${all ? '' : ' iv-partial'}">${icons.check}<b>${all
+            ? `All ${run.cfg.rounds} rounds done` : `${st.roundsDone} of ${run.cfg.rounds} rounds`}</b><span>${esc(fmtClock(st.hardSec))} hard</span></div>
+          <div class="plank-pb-banner" id="iv-pb" style="display:none">${icons.trophy}<b>New best ${esc(preset.chip)} ${m.word}</b><span id="iv-pb-v"></span></div>
+          ${st.hardSec ? `
+          <div class="card plank-totals">
+            <div><div class="stat-l">Hard</div><div class="stat-v">${esc(fmtClock(st.hardSec))}</div></div>
+            <div><div class="stat-l">Total</div><div class="stat-v">${esc(fmtClock(st.totalSec))}</div></div>
+            <div><div class="stat-l">Rounds</div><div class="stat-v">${st.roundsDone}/${run.cfg.rounds}</div></div>
+          </div>` : '<div class="empty"><p>No hard block run — nothing logged.</p></div>'}
+          ${run.recorded ? `
+          <div class="card">
+            <p class="iv-pace-q">${m.ask}</p>
+            <div class="iv-pace-in">
+              <button class="rest-step" id="iv-pace-dn" aria-label="Less">−</button>
+              <input class="input" id="iv-pace-val" inputmode="decimal" autocomplete="off" value="${esc(val)}" placeholder="${m.word}">
+              <span class="u">${m.unit}</span>
+              <button class="rest-step" id="iv-pace-up" aria-label="More">+</button>
+            </div>
+            <p class="iv-pace-hint">${lastP ? `Last time ${esc(IV.fmtPaceShort(run.machine, lastP.pace))}` : `First ${m.word} for ${esc(preset.chip)} on ${m.name}`}${
+              run.target != null ? ` · target <b>→ ${esc(IV.fmtPaceShort(run.machine, run.target))}</b>` : ''}</p>
+          </div>` : ''}
+          <button class="btn btn-primary plank-cta" id="iv-save">${icons.check} ${primary}</button>
+          ${run.recorded ? `<button class="btn btn-ghost plank-sub" id="iv-skip-pace">Skip — don't log a ${m.word}</button>` : ''}
+          <div class="spacer"></div>
+        </div>
+      </main>
+    `);
+
+    const input = qs('#iv-pace-val');
+    const showPB = () => { // live gold banner while the typed speed beats the best
+      const v = input ? IV.cleanPace(run.machine, input.value) : null;
+      const beat = v != null && bestPrior != null && v > bestPrior;
+      const pb = qs('#iv-pb');
+      if (pb) pb.style.display = beat ? '' : 'none';
+      const pv = qs('#iv-pb-v');
+      if (pv && beat) pv.textContent = IV.fmtPace(run.machine, v);
+      return { v, beat };
+    };
+    if (input) {
+      input.addEventListener('input', () => { paceDraft = input.value; showPB(); });
+      const nudge = (dir) => {
+        const v = IV.stepPace(run.machine, input.value || run.target, dir);
+        input.value = IV.fmtPaceInput(run.machine, v); paceDraft = input.value; showPB();
+      };
+      qs('#iv-pace-dn').addEventListener('click', () => nudge(-1));
+      qs('#iv-pace-up').addEventListener('click', () => nudge(1));
+      showPB();
+    }
+    const leave = () => {
+      const active = DB.getActive();
+      const destination = run.from && active && active.planId === run.from.planId ? `#/plan/${run.from.planId}/run` : '#/';
+      run = null; paceDraft = null;
+      DB.setIntervalActive(null); releaseWakeLock();
+      go(destination);
+    };
+    qs('#iv-save').addEventListener('click', () => {
+      if (run.recorded && input) {
+        const { v, beat } = showPB();
+        if (v != null) {
+          DB.setIntervalPace(run.id, v);
+          if (beat) {
+            if (navigator.vibrate) navigator.vibrate([120, 60, 120, 60, 320]);
+            toast(`🏆 New best ${preset.chip} ${m.word} — ${IV.fmtPace(run.machine, v)}`);
+          } else if (bestPrior == null) {
+            toast(`First ${m.word} logged — ${IV.fmtPace(run.machine, v)} is the one to beat`);
+          } else toast(`Saved — ${IV.fmtPace(run.machine, v)}`);
+        }
+      }
+      leave();
+    });
+    const skipPace = qs('#iv-skip-pace');
+    if (skipPace) skipPace.addEventListener('click', leave);
+  }
 
   function render() {
     clearTickers();
@@ -2298,6 +2587,26 @@ function screenIntervals(finisherRoute = false) {
     startTicking();
   }
 
+  // Keep the screen on while a run is live, and recompute the instant the app
+  // comes back — the clock is timestamp-based, so it self-corrects.
+  const onVis = () => {
+    if (document.visibilityState !== 'visible' || !run) return;
+    const resumed = IV.intervalResume(run, Date.now());
+    if (resumed === run) { if (run.phase === 'run') { acquireWakeLock(); paint(); } return; }
+    run = resumed;
+    if (!run) { persist(); render(); return; }
+    if (run.phase === 'done') finishRun(run.lastEvent === 'abandoned');
+    else { persist(); acquireWakeLock(); if (run.lastEvent === 'switch') announce(IV.currentBlock(run)); }
+    render();
+  };
+  document.addEventListener('visibilitychange', onVis);
+  onLeaveScreen(() => {
+    document.removeEventListener('visibilitychange', onVis);
+    releaseWakeLock();
+    screenActive = false;
+    cancelVoice();
+  });
+  if (run && run.phase === 'run') acquireWakeLock();
   render();
 }
 
