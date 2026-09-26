@@ -1032,26 +1032,29 @@ export function muscleFor(name) {
 /* ---------- export / import (backup) ---------- */
 export function exportAll() {
   // Everything that syncs, so a backup can't silently drop a record the app
-  // still shows (weigh-ins, the goal, plank PBs) — importAll only applies the
-  // keys it finds, so an older backup without them still restores fine.
+  // still shows (weigh-ins, the goal, plank PBs, interval sessions) — importAll
+  // only applies the keys it finds, so an older backup without them still restores fine.
   return JSON.stringify(
     {
       plans: getPlans(), sessions: read(KEY_SESSIONS, []),
       weights: read(KEY_WEIGHTS, null), goal: getGoal(), planks: read(KEY_PLANKS, null),
+      intervals: read(KEY_INTERVALS, null),
       v: 1,
     },
     null,
     2
   );
 }
-/** Wipe ALL local data (plans, history, planks, in-progress workout) on this
- *  device. Marks the change so the empty state also syncs to the cloud. */
+/** Wipe ALL local data (plans, history, planks, intervals, in-progress runs) on
+ *  this device. Marks the change so the empty state also syncs to the cloud. */
 export function resetAll() {
   localStorage.removeItem(KEY_PLANS);
   localStorage.removeItem(KEY_SESSIONS);
   localStorage.removeItem(KEY_ACTIVE);
   localStorage.removeItem(KEY_PLANKS);
   localStorage.removeItem(KEY_PLANK_ACTIVE);
+  localStorage.removeItem(KEY_INTERVALS);
+  localStorage.removeItem(KEY_INTERVAL_ACTIVE);
   localStorage.setItem(KEY_UPDATED, String(Date.now()));
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('wt-changed'));
 }
@@ -1071,4 +1074,5 @@ export function importAll(json) {
   if (data.weights && Array.isArray(data.weights.entries)) write(KEY_WEIGHTS, data.weights);
   if (data.goal && typeof data.goal === 'object') write(KEY_GOAL, data.goal);
   if (data.planks && Array.isArray(data.planks.sessions)) write(KEY_PLANKS, data.planks);
+  if (data.intervals && Array.isArray(data.intervals.sessions)) write(KEY_INTERVALS, data.intervals);
 }

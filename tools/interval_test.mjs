@@ -449,5 +449,31 @@ console.log('active run — device-local, never synced:');
   eq('cleared', DB.getIntervalActive(), null);
 }
 
+console.log('resetAll — wipes interval sessions and a live run too (Danger zone says "everything"):');
+{
+  reset();
+  DB.recordIntervalSession({ id: 'a', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 4, pace: 12 });
+  DB.setIntervalActive(run44());
+  DB.resetAll();
+  eq('sessions gone', DB.getIntervalSessions().length, 0);
+  eq('live run gone', DB.getIntervalActive(), null);
+}
+
+console.log('exportAll / importAll — a backup carries interval sessions:');
+{
+  reset();
+  DB.recordIntervalSession({ id: 'a', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 4, pace: 12 });
+  const backup = JSON.parse(DB.exportAll());
+  ok('intervals in the backup', backup.intervals && backup.intervals.sessions.length === 1);
+  reset();
+  DB.importAll(JSON.stringify(backup));
+  eq('interval session restored', DB.getIntervalSessions().length, 1);
+  eq('speed restored', DB.getIntervalSessions()[0].pace, 12);
+  reset();
+  DB.recordIntervalSession({ id: 'keep', t: 1, preset: '4x4', machine: 'treadmill', cfg: cfg44, roundsDone: 1, pace: null });
+  DB.importAll(JSON.stringify({ plans: [{ id: 'p', name: 'X', exercises: [] }], sessions: [], v: 1 }));
+  eq('an old backup without intervals leaves them alone', DB.getIntervalSessions().length, 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

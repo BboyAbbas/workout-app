@@ -168,6 +168,7 @@ Store `wt_intervals_v1`:
 - Cloud field `intervals`, wired exactly like `planks`: `KNOWN_SYNC_FIELDS`, `snapshot()`, `applyRemote()` (`'intervals' in data`; `null` removes it).
 - `js/sync.js`: when local data is unpushed, `DB.mergeIntervalDoc(remote, local)` unions sessions by `id`. For the same `id`, the remote copy wins, but a local `pace` fills a remote `null`. Remote `prefs` win. A clean local copy lets a remote delete stick, as with planks.
 - The sync worker stores `data` whole, so it needs no change.
+- Settings backup (`exportAll` / `importAll`) carries `intervals` like `planks`; an old backup without the key leaves local interval data alone. "Reset all data" (`resetAll`) also removes `wt_intervals_v1` and `wt_interval_active_v1`.
 
 ## 7. Code layout
 
