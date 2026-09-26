@@ -46,11 +46,14 @@ const OUT = 'tools/shots';
     const day = 86400000, now = Date.now();
     const mk = (id, ago, secs) => ({ id, t: now - ago * day, endedAt: now - ago * day,
       sets: secs.map((s, i) => ({ sec: s, at: now - ago * day + i * 90000 })) });
+    const mkSide = (id, ago, left, right) => ({ id, mode: 'side', t: now - ago * day, endedAt: now - ago * day,
+      sets: [{ side: 'L', sec: left, at: now - ago * day }, { side: 'R', sec: right, at: now - ago * day + 90000 }] });
     localStorage.setItem('wt_planks_v1', JSON.stringify({
       targetSets: 3, restSec: 60,
       sessions: [
         mk('p1', 24, [42, 38, 35]), mk('p2', 20, [50, 46, 41]), mk('p3', 16, [58, 52, 47]),
         mk('p4', 11, [66, 61, 55]), mk('p5', 7, [78, 70, 64]), mk('p6', 3, [92, 84, 75]),
+        mkSide('sp1', 5, 45, 40), mkSide('sp2', 2, 48, 42),
       ],
     }));
   });
@@ -103,6 +106,52 @@ const OUT = 'tools/shots';
   await page.locator('#plank-done').click();
   await page.waitForSelector('#plank-start');
   await shot('7-setup-after', true);
+
+  await page.locator('[data-plank-mode="side"]').click();
+  await page.waitForSelector('.toast', { state: 'hidden' });
+  await shot('side-setup', true);
+
+  await page.locator('[data-sets="1"]').click();
+  await page.locator('#plank-start').click();
+  await page.waitForFunction(() => {
+    const n = document.querySelector('.plank-side-label');
+    return n && n.textContent.trim() === 'LEFT';
+  });
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_plank_active_v1'));
+    a.startAt = Date.now() - 50 * 1000;
+    localStorage.setItem('wt_plank_active_v1', JSON.stringify(a));
+  });
+  await page.reload();
+  await page.waitForFunction(() => {
+    const n = document.querySelector('.plank-side-label');
+    return n && n.textContent.trim() === 'LEFT';
+  });
+  await shot('side-hold-left');
+
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-stage-switch');
+  await shot('side-switch');
+
+  await page.waitForFunction(() => {
+    const n = document.querySelector('.plank-side-label');
+    return n && n.textContent.trim() === 'RIGHT';
+  }, null, { timeout: 7000 });
+  await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_plank_active_v1'));
+    a.startAt = Date.now() - 45 * 1000;
+    localStorage.setItem('wt_plank_active_v1', JSON.stringify(a));
+  });
+  await page.reload();
+  await page.waitForFunction(() => {
+    const n = document.querySelector('.plank-side-label');
+    return n && n.textContent.trim() === 'RIGHT';
+  });
+  await shot('side-hold-right');
+
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-summary');
+  await shot('side-summary', true);
 
   await browser.close();
   console.log('done');

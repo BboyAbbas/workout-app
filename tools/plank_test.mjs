@@ -117,6 +117,41 @@ console.log('plankStats — the numbers the screen shows:');
   eq('last session is the newest', st.last.t, T(2));
 }
 
+console.log('side records, history, progress, and stats stay separate from front:');
+{
+  reset();
+  store['wt_planks_v1'] = JSON.stringify({ sessions: [{ id: 'legacy', t: T(1), sets: [{ sec: 92, at: T(1) }] }] });
+  eq('side hold cannot be appended to front session id', DB.recordPlankSet('legacy', 30, { at: T(1) + 1000, mode: 'side', side: 'L' }), null);
+  DB.recordPlankSet('side1', 60, { at: T(2), mode: 'side', side: 'L' });
+  DB.recordPlankSet('side1', 45, { at: T(2) + 1000, mode: 'side', side: 'R' });
+  DB.recordPlankSet('side2', 40, { at: T(3), mode: 'side', side: 'L' });
+  eq('legacy session without mode is front', DB.getPlankSessions('front')[0].id, 'legacy');
+  eq('default front record excludes side holds', DB.plankBest().sec, 92);
+  eq('side left record', DB.plankBest('side', 'L').sec, 60);
+  eq('side right record', DB.plankBest('side', 'R').sec, 45);
+  eq('side record without side is strongest side', DB.plankBest('side').sec, 60);
+  eq('left PB compares with left only', DB.isPlankPB(55, 'side', 'L'), false);
+  eq('right PB compares with right only', DB.isPlankPB(50, 'side', 'R'), true);
+  eq('front PB ignores side records', DB.isPlankPB(91, 'front'), false);
+  const sideSessions = DB.getPlankSessions('side');
+  eq('side history contains only side sessions', sideSessions.length, 2);
+  eq('newest side session first', sideSessions[0].id, 'side2');
+  eq('side mode persisted', sideSessions[1].mode, 'side');
+  eq('side label persisted on hold', sideSessions[1].sets[0].side, 'L');
+  const front = DB.plankProgress('front');
+  eq('front chart contains only legacy front session', front.length, 1);
+  eq('front chart sees legacy best', front[0].best, 92);
+  const side = DB.plankProgress('side');
+  eq('side chart has both side sessions', side.length, 2);
+  eq('weaker side best for complete session', side[0].best, 45);
+  eq('one-sided session weaker best is zero', side[1].best, 0);
+  eq('one-sided session stays in chart', side[1].sets, 1);
+  eq('side stats count only side sessions', DB.plankStats('side').sessions, 2);
+  eq('side stats total hold seconds', DB.plankStats('side').totalSec, 145);
+  eq('side stats count recorded holds', DB.plankStats('side').totalSets, 3);
+  eq('side stats best hold', DB.plankStats('side').best.sec, 60);
+}
+
 console.log('getPlankSessions — newest first, sets intact:');
 {
   reset();
@@ -150,6 +185,12 @@ console.log('plank prefs — sets/rest remembered between sessions:');
   eq('rest saved', DB.plankPrefs().restSec, 90);
   eq('nonsense sets ignored', (DB.setPlankPrefs({ targetSets: 0 }), DB.plankPrefs().targetSets), 4);
   eq('nonsense rest ignored', (DB.setPlankPrefs({ restSec: -1 }), DB.plankPrefs().restSec), 90);
+  eq('default mode is front', DB.plankPrefs().mode, 'front');
+  DB.setPlankPrefs({ mode: 'side' });
+  eq('mode saved', DB.plankPrefs().mode, 'side');
+  eq('mode exposed on plank doc', DB.getPlanks().mode, 'side');
+  DB.setPlankPrefs({ mode: 'unknown' });
+  eq('invalid mode ignored', DB.plankPrefs().mode, 'side');
 }
 
 /* ---------- cloud sync ---------- */
@@ -236,6 +277,136 @@ console.log('newPlankRun — opens ready for set 1:');
   eq('rest', r.restSec, 60);
   eq('no holds yet', r.sets.length, 0);
   ok('has an id to record against', typeof r.id === 'string' && r.id.length > 0);
+}
+
+console.log('side plank — left hold enters the timestamped switch:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 60, mode: 'side' }, T(1));
+  eq('switch duration constant', DB.PLANK_SWITCH_SEC, 5);
+  eq('side run starts on left', r.side, 'L');
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 45 * S);
+  eq('left stop enters switch', r.phase, 'switch');
+  eq('right side is next', r.side, 'R');
+  eq('left hold saved with side', r.sets[0] && r.sets[0].side, 'L');
+  eq('switch ends in five seconds', r.switchEndAt, T(1) + 50 * S);
+  const switchSec = (run, now) => typeof DB.plankSwitchSec === 'function' ? DB.plankSwitchSec(run, now) : undefined;
+  eq('switch countdown starts at five', switchSec(r, T(1) + 45 * S), 5);
+  eq('switch countdown rounds up', switchSec(r, T(1) + 47 * S + 1), 3);
+  eq('switch countdown reaches zero', switchSec(r, r.switchEndAt), 0);
+}
+
+console.log('side plank — switch starts right hold at deadline, then rest and next pair:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 45 * S);
+  const switchEnd = r.switchEndAt;
+  r = DB.plankStep(r, { type: 'tick' }, switchEnd);
+  eq('switch deadline starts right hold', r.phase, 'hold');
+  eq('right hold starts at switch deadline', r.startAt, switchEnd);
+  eq('right side active', r.side, 'R');
+  eq('right-start event emitted once', r.lastEvent, 'rightStarted');
+  eq('right hold starts at zero elapsed', DB.plankHoldSec(r, switchEnd), 0);
+  r = DB.plankStep(r, { type: 'stop' }, switchEnd + 40 * S);
+  eq('right stop begins rest', r.phase, 'rest');
+  eq('completed pair advances set index', r.setIndex, 1);
+  eq('next pair starts on left', r.side, 'L');
+  eq('both side holds saved', r.sets.length, 2);
+  eq('right hold saved with side', r.sets[1] && r.sets[1].side, 'R');
+  eq('normal rest begins after right hold', r.restEndAt, switchEnd + 70 * S);
+  r = DB.plankStep(r, { type: 'skipRest' }, switchEnd + 41 * S);
+  eq('next set ready after rest skip', r.phase, 'ready');
+  eq('next set remains left', r.side, 'L');
+}
+
+console.log('side plank — switch can be skipped and right hold starts now:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 45 * S);
+  r = DB.plankStep(r, { type: 'skipSwitch' }, T(1) + 47 * S);
+  eq('skip enters right hold', r.phase, 'hold');
+  eq('skipped right hold starts now', r.startAt, T(1) + 47 * S);
+  eq('right side active', r.side, 'R');
+  eq('right-start event emitted', r.lastEvent, 'rightStarted');
+
+  let late = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  late = DB.plankStep(late, { type: 'start' }, T(1));
+  late = DB.plankStep(late, { type: 'stop' }, T(1) + 45 * S);
+  const deadline = late.switchEndAt;
+  late = DB.plankStep(late, { type: 'skipSwitch' }, deadline + 2 * S);
+  eq('late skip enters right hold', late.phase, 'hold');
+  eq('late skip starts at expired switch deadline', late.startAt, deadline);
+  let abandoned = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  abandoned = DB.plankStep(abandoned, { type: 'start' }, T(1));
+  abandoned = DB.plankStep(abandoned, { type: 'stop' }, T(1) + 45 * S);
+  abandoned = DB.plankStep(abandoned, { type: 'skipSwitch' }, abandoned.switchEndAt + DB.PLANK_ABANDON_MS + 1);
+  eq('late skip past abandon limit returns ready', abandoned.phase, 'ready');
+  eq('late skip past limit abandons right hold', abandoned.lastEvent, 'abandoned');
+}
+
+console.log('side plank — mis-taps and cancels keep current side and set:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 300);
+  eq('left mis-tap returns ready', r.phase, 'ready');
+  eq('left mis-tap stays left', r.side, 'L');
+  eq('left mis-tap stores nothing', r.sets.length, 0);
+  r = DB.plankStep(r, { type: 'start' }, T(1) + S);
+  r = DB.plankStep(r, { type: 'cancel' }, T(1) + 4 * S);
+  eq('left cancel returns ready', r.phase, 'ready');
+  eq('left cancel stays left', r.side, 'L');
+  eq('left cancel stores nothing', r.sets.length, 0);
+  r = DB.plankStep(r, { type: 'start' }, T(1) + 5 * S);
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 50 * S);
+  r = DB.plankStep(r, { type: 'skipSwitch' }, T(1) + 51 * S);
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 51300);
+  eq('right mis-tap returns ready', r.phase, 'ready');
+  eq('right mis-tap stays right', r.side, 'R');
+  eq('right mis-tap keeps left hold only', r.sets.length, 1);
+  r = DB.plankStep(r, { type: 'start' }, T(1) + 52 * S);
+  r = DB.plankStep(r, { type: 'cancel' }, T(1) + 55 * S);
+  eq('right cancel returns ready', r.phase, 'ready');
+  eq('right cancel stays right', r.side, 'R');
+  eq('right cancel keeps left hold only', r.sets.length, 1);
+  eq('left record remains intact', r.sets[0].side, 'L');
+}
+
+console.log('side plank — switch resumes before and after deadline:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 45 * S);
+  const end = r.switchEndAt;
+  const mid = DB.plankResume(r, end - 2 * S);
+  eq('mid-switch remains switching', mid.phase, 'switch');
+  eq('mid-switch deadline stays fixed', mid.switchEndAt, end);
+  const late = DB.plankResume(r, end + 8 * S);
+  eq('expired switch resumes in right hold', late.phase, 'hold');
+  eq('right hold uses exact switch end as start', late.startAt, end);
+  eq('expired switch resumes right side', late.side, 'R');
+  eq('expired switch emits right-start event', late.lastEvent, 'rightStarted');
+  const abandoned = DB.plankResume(r, end + DB.PLANK_ABANDON_MS + 1);
+  eq('right hold past abandon limit returns ready', abandoned.phase, 'ready');
+  eq('abandoned right side stays selected', abandoned.side, 'R');
+  eq('abandoned right hold is not added', abandoned.sets.length, 1);
+  eq('left hold remains saved', abandoned.sets[0].side, 'L');
+}
+
+console.log('side plank — finish during switch and add set resumes missing right side:');
+{
+  let r = DB.newPlankRun({ targetSets: 2, restSec: 30, mode: 'side' }, T(1));
+  r = DB.plankStep(r, { type: 'start' }, T(1));
+  r = DB.plankStep(r, { type: 'stop' }, T(1) + 45 * S);
+  r = DB.plankStep(r, { type: 'finish' }, T(1) + 46 * S);
+  eq('finish ends from switch', r.phase, 'done');
+  r = DB.plankStep(r, { type: 'addSet' }, T(1) + 47 * S);
+  eq('partial set remains within original target', r.targetSets, 2);
+  eq('added set resumes same partial pair on right', r.side, 'R');
+  eq('partial left hold is retained', r.sets.length, 1);
+  eq('right hold is ready to start', r.phase, 'ready');
 }
 
 console.log('start -> hold, and the clock runs off an absolute timestamp:');
@@ -442,6 +613,17 @@ console.log('mergePlankDoc — two devices adding sets to the SAME session keep 
   eq('all three distinct holds kept', m.sessions[0].sets.length, 3);
   eq('sets ordered by time', m.sessions[0].sets[2].sec, 50);
   ok('the duplicate was not doubled', m.sessions[0].sets.filter((s) => s.sec === 30).length === 1);
+}
+
+console.log('mergePlankDoc — equal-time equal-length side holds remain distinct:');
+{
+  const at = T(1);
+  const remote = { sessions: [{ id: 'side', mode: 'side', t: at, sets: [{ sec: 45, at, side: 'L' }] }] };
+  const local = { sessions: [{ id: 'side', mode: 'side', t: at, sets: [{ sec: 45, at, side: 'L' }, { sec: 45, at, side: 'R' }] }] };
+  const m = DB.mergePlankDoc(remote, local);
+  eq('left and right remain two sets', m.sessions[0].sets.length, 2);
+  ok('left side kept', m.sessions[0].sets.some((s) => s.side === 'L'));
+  ok('right side kept', m.sessions[0].sets.some((s) => s.side === 'R'));
 }
 
 console.log('mergePlankDoc — nothing local to add leaves the remote doc untouched:');

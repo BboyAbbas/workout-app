@@ -13,7 +13,7 @@ const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
 const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
 const KEY_WEIGHTS = 'wt_weights_v1'; // body-weight log {entries:[{id,t,kg,note}], targetKg, heightCm}
-const KEY_PLANKS = 'wt_planks_v1'; // plank trainer {sessions:[{id,t,sets:[{sec,at}]}], targetSets, restSec}
+const KEY_PLANKS = 'wt_planks_v1'; // plank trainer {sessions:[{id,t,mode,sets:[{sec,at,side?}]}], targetSets, restSec, mode}
 const KEY_PLANK_ACTIVE = 'wt_plank_active_v1'; // in-progress plank run, survives refresh (device-local, never synced)
 const KEY_INTERVALS = 'wt_intervals_v1'; // interval trainer {sessions:[...], prefs:{preset,machine,muted,cfgs}}
 const KEY_INTERVAL_ACTIVE = 'wt_interval_active_v1'; // in-progress interval run, survives refresh (device-local, never synced)
@@ -178,18 +178,21 @@ export function weightAt(entries, t) {
 }
 
 /* ---------- plank trainer ----------
-   Planks are a HOLD, not a lift: one number per set (seconds) and a single
-   all-time record to chase. They live in their own store — never in `plans` or
+   Planks are a HOLD, not a lift: seconds per hold, with separate front, left
+   and right records to chase. They live in their own store — never in `plans` or
    `sessions` — so the up-next rotation and the strength analytics cannot see
    them at all. Same shape as the weight log: one doc, own sync field, unknown
    sub-fields preserved. */
-export const PLANK_DEFAULTS = { targetSets: 3, restSec: 60 };
+export const PLANK_DEFAULTS = { targetSets: 3, restSec: 60, mode: 'front' };
 export const PLANK_SET_OPTIONS = [1, 2, 3, 4, 5];
 export const PLANK_REST_OPTIONS = [30, 45, 60, 90, 120];
 export const MIN_PLANK_SEC = 1; // below this it was a mis-tap, not a plank
+export const PLANK_SWITCH_SEC = 5;
 
 const okSets = (n) => Number.isFinite(n) && n >= 1 && n <= 10;
 const okRest = (n) => Number.isFinite(n) && n >= 0 && n <= 600;
+const okPlankMode = (mode) => mode === 'front' || mode === 'side';
+const plankSessionMode = (session) => session && session.mode === 'side' ? 'side' : 'front';
 
 export function getPlanks() {
   const raw = read(KEY_PLANKS, null);
@@ -200,6 +203,7 @@ export function getPlanks() {
     sessions: Array.isArray(p.sessions) ? p.sessions : [],
     targetSets: okSets(ts) ? Math.round(ts) : PLANK_DEFAULTS.targetSets,
     restSec: okRest(rs) ? Math.round(rs) : PLANK_DEFAULTS.restSec,
+    mode: okPlankMode(p.mode) ? p.mode : PLANK_DEFAULTS.mode,
   };
 }
 function savePlanks(p) {
@@ -207,19 +211,20 @@ function savePlanks(p) {
   write(KEY_PLANKS, p);
 }
 
-/** Sets + rest the trainer opens with (whatever was used last time). */
+/** Mode, sets + rest the trainer opens with (whatever was used last time). */
 export function plankPrefs() {
   const p = getPlanks();
-  return { targetSets: p.targetSets, restSec: p.restSec };
+  return { targetSets: p.targetSets, restSec: p.restSec, mode: p.mode };
 }
-export function setPlankPrefs({ targetSets, restSec } = {}) {
+export function setPlankPrefs({ targetSets, restSec, mode } = {}) {
   const p = getPlanks();
   const ts = Number(targetSets), rs = Number(restSec);
   let changed = false;
   if (okSets(ts)) { p.targetSets = Math.round(ts); changed = true; }
   if (okRest(rs)) { p.restSec = Math.round(rs); changed = true; }
+  if (okPlankMode(mode)) { p.mode = mode; changed = true; }
   if (changed) savePlanks(p);
-  return { targetSets: p.targetSets, restSec: p.restSec };
+  return { targetSets: p.targetSets, restSec: p.restSec, mode: p.mode };
 }
 
 /**
@@ -230,19 +235,22 @@ export function setPlankPrefs({ targetSets, restSec } = {}) {
  * and anything under a second is a mis-tap: not stored, not a record, ignored.
  * Returns {session, set} or null when nothing was recorded.
  */
-export function recordPlankSet(sessionId, sec, { at = Date.now(), targetSets = null, restSec = null } = {}) {
+export function recordPlankSet(sessionId, sec, { at = Date.now(), targetSets = null, restSec = null, mode = 'front', side = null } = {}) {
   const n = Math.floor(Number(sec));
   if (!Number.isFinite(n) || n < MIN_PLANK_SEC) return null;
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
+  if (selectedMode === 'side' && side !== 'L' && side !== 'R') return null;
   const p = getPlanks();
   let s = p.sessions.find((x) => x && x.id === sessionId);
+  if (s && plankSessionMode(s) !== selectedMode) return null;
   if (!s) {
-    s = { id: sessionId, t: at, sets: [] };
+    s = { id: sessionId, t: at, sets: [], mode: selectedMode };
     if (okSets(Number(targetSets))) s.targetSets = Math.round(Number(targetSets));
     if (okRest(Number(restSec))) s.restSec = Math.round(Number(restSec));
     p.sessions.push(s);
   }
   if (!Array.isArray(s.sets)) s.sets = [];
-  const set = { sec: n, at };
+  const set = selectedMode === 'side' ? { sec: n, at, side } : { sec: n, at };
   s.sets.push(set);
   s.endedAt = at;
   savePlanks(p);
@@ -256,15 +264,20 @@ export function deletePlankSession(id) {
 }
 
 /** Plank sessions, newest first (what the history list shows). */
-export function getPlankSessions() {
-  return [...getPlanks().sessions].sort((a, b) => b.t - a.t);
+export function getPlankSessions(mode = 'front') {
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
+  return getPlanks().sessions.filter((s) => plankSessionMode(s) === selectedMode).sort((a, b) => b.t - a.t);
 }
 
 /** The longest single hold ever, or null. This is THE number the trainer chases. */
-export function plankBest() {
+export function plankBest(mode = 'front', side = null) {
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
   let best = null;
   for (const s of getPlanks().sessions) {
+    if (plankSessionMode(s) !== selectedMode) continue;
     for (const set of (s.sets || [])) {
+      if (selectedMode === 'side' && (side === 'L' || side === 'R') && set.side !== side) continue;
+      if (selectedMode === 'side' && set.side !== 'L' && set.side !== 'R') continue;
       const sec = Number(set && set.sec) || 0;
       if (sec > 0 && (!best || sec > best.sec)) best = { sec, at: Number(set.at) || s.t, sessionId: s.id };
     }
@@ -274,22 +287,30 @@ export function plankBest() {
 
 /** Would this hold beat the record? MUST be asked BEFORE recording it.
  *  The first plank ever isn't a "new best" — there was nothing to beat. */
-export function isPlankPB(sec) {
+export function isPlankPB(sec, mode = 'front', side = null) {
   const n = Math.floor(Number(sec));
   if (!Number.isFinite(n) || n < MIN_PLANK_SEC) return false;
-  const b = plankBest();
+  const b = plankBest(mode, side);
   return !!b && n > b.sec;
 }
 
 /** One point per session, OLDEST first — the progress curve. */
-export function plankProgress() {
-  return [...getPlanks().sessions]
+export function plankProgress(mode = 'front') {
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
+  return getPlanks().sessions
+    .filter((s) => plankSessionMode(s) === selectedMode)
     .sort((a, b) => a.t - b.t)
     .map((s) => {
-      const secs = (s.sets || []).map((x) => Number(x && x.sec) || 0).filter((x) => x > 0);
+      const holds = (s.sets || []).filter((x) => Number(x && x.sec) > 0
+        && (selectedMode !== 'side' || x.side === 'L' || x.side === 'R'));
+      const secs = holds.map((x) => Number(x.sec) || 0);
+      const left = selectedMode === 'side' ? secsForSide(holds, 'L') : [];
+      const right = selectedMode === 'side' ? secsForSide(holds, 'R') : [];
       return {
         id: s.id, t: s.t,
-        best: secs.length ? Math.max(...secs) : 0,
+        best: selectedMode === 'side'
+          ? left.length && right.length ? Math.min(Math.max(...left), Math.max(...right)) : 0
+          : secs.length ? Math.max(...secs) : 0,
         total: secs.reduce((a, b) => a + b, 0),
         sets: secs.length,
       };
@@ -297,7 +318,11 @@ export function plankProgress() {
     .filter((p) => p.sets > 0);
 }
 
-/* ---------- the plank run: hold / rest / next-set state machine ----------
+function secsForSide(sets, side) {
+  return sets.filter((x) => x.side === side).map((x) => Number(x.sec) || 0);
+}
+
+/* ---------- the plank run: hold / switch / rest / next-set state machine ----------
    Pure and timestamp-driven: every phase stores an ABSOLUTE time, never an
    accumulated counter, so a locked screen, a backgrounded tab or a full reload
    cannot make the clock drift. `now` is passed in, so the whole flow —
@@ -306,15 +331,20 @@ export function plankProgress() {
    returned state and records finished holds itself. */
 export const PLANK_ABANDON_MS = 30 * 60 * 1000; // a "hold" left running this long wasn't one
 
-export function newPlankRun({ targetSets, restSec } = {}, now = Date.now()) {
+export function newPlankRun({ targetSets, restSec, mode = 'front' } = {}, now = Date.now()) {
   const ts = Number(targetSets), rs = Number(restSec);
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
   return {
     id: uid(),
     phase: 'ready',
+    mode: selectedMode,
+    side: selectedMode === 'side' ? 'L' : null,
     setIndex: 0,
     targetSets: okSets(ts) ? Math.round(ts) : PLANK_DEFAULTS.targetSets,
     restSec: okRest(rs) ? Math.round(rs) : PLANK_DEFAULTS.restSec,
     startAt: 0,
+    switchEndAt: 0,
+    switchTick: 0,
     restEndAt: 0,
     sets: [],
     lastEvent: null,
@@ -333,13 +363,28 @@ export function plankRestSec(run, now = Date.now()) {
   return Math.max(0, Math.round((run.restEndAt - now) / 1000));
 }
 
+/** Seconds left in the switch countdown, rounded up to the next whole second. */
+export function plankSwitchSec(run, now = Date.now()) {
+  if (!run || run.phase !== 'switch' || !run.switchEndAt) return 0;
+  return Math.max(0, Math.ceil((run.switchEndAt - now) / 1000));
+}
+
+function startRightSide(run, now, startAt = run.switchEndAt) {
+  if (now - run.switchEndAt > PLANK_ABANDON_MS) {
+    return { ...run, phase: 'ready', side: 'R', startAt: 0, switchEndAt: 0, switchTick: 0,
+      restEndAt: 0, lastEvent: 'abandoned' };
+  }
+  return { ...run, phase: 'hold', side: 'R', startAt, switchEndAt: 0,
+    switchTick: 0, restEndAt: 0, lastEvent: 'rightStarted' };
+}
+
 export function plankStep(run, action, now = Date.now()) {
   if (!run || !action) return run;
   const r = { ...run, sets: [...run.sets], lastEvent: null };
   switch (action.type) {
     case 'start':
       if (r.phase === 'hold') return run;
-      r.phase = 'hold'; r.startAt = now; r.restEndAt = 0;
+      r.phase = 'hold'; r.startAt = now; r.switchEndAt = 0; r.restEndAt = 0;
       return r;
 
     case 'stop': {
@@ -347,12 +392,18 @@ export function plankStep(run, action, now = Date.now()) {
       const sec = plankHoldSec(run, now);
       r.startAt = 0;
       if (sec < MIN_PLANK_SEC) { // a mis-tap, not a plank: nothing recorded, same set
-        r.phase = 'ready'; r.restEndAt = 0; r.lastEvent = 'discarded';
+        r.phase = 'ready'; r.switchEndAt = 0; r.restEndAt = 0; r.lastEvent = 'discarded';
         return r;
       }
-      r.sets.push({ sec, at: now });
-      r.setIndex = r.setIndex + 1;
+      r.sets.push(r.mode === 'side' ? { sec, at: now, side: r.side } : { sec, at: now });
       r.lastEvent = 'recorded';
+      if (r.mode === 'side' && r.side === 'L') {
+        r.side = 'R'; r.phase = 'switch'; r.switchEndAt = now + PLANK_SWITCH_SEC * 1000;
+        r.switchTick = 0; r.restEndAt = 0;
+        return r;
+      }
+      r.setIndex = r.setIndex + 1;
+      if (r.mode === 'side') { r.side = 'L'; r.switchEndAt = 0; r.switchTick = 0; }
       if (r.setIndex >= r.targetSets) { r.phase = 'done'; r.restEndAt = 0; return r; }
       if (r.restSec > 0) { r.phase = 'rest'; r.restEndAt = now + r.restSec * 1000; return r; }
       r.phase = 'ready'; r.restEndAt = 0;
@@ -361,8 +412,12 @@ export function plankStep(run, action, now = Date.now()) {
 
     case 'cancel': // deliberately bin a hold in progress
       if (r.phase !== 'hold') return run;
-      r.phase = 'ready'; r.startAt = 0; r.restEndAt = 0; r.lastEvent = 'cancelled';
+      r.phase = 'ready'; r.startAt = 0; r.switchEndAt = 0; r.restEndAt = 0; r.lastEvent = 'cancelled';
       return r;
+
+    case 'skipSwitch':
+      if (r.phase !== 'switch') return run;
+      return startRightSide(r, now, Math.min(now, r.switchEndAt));
 
     case 'skipRest':
       if (r.phase !== 'rest') return run;
@@ -376,18 +431,24 @@ export function plankStep(run, action, now = Date.now()) {
       return r;
     }
 
-    case 'tick': // the rest ran out (on screen, or while the phone was away)
+    case 'tick': // a countdown ran out (on screen, or while the phone was away)
+      if (r.phase === 'switch') {
+        if (plankSwitchSec(run, now) > 0) return run;
+        return startRightSide(r, now);
+      }
       if (r.phase !== 'rest' || plankRestSec(run, now) > 0) return run;
       r.phase = 'ready'; r.restEndAt = 0; r.lastEvent = 'restDone';
       return r;
 
     case 'addSet': // "one more" from the summary — keeps the same session
-      r.targetSets = Math.min(10, r.targetSets + 1);
-      r.phase = 'ready'; r.startAt = 0; r.restEndAt = 0;
+      if (!(r.mode === 'side' && r.side === 'R' && r.setIndex < r.targetSets)) {
+        r.targetSets = Math.min(10, r.targetSets + 1);
+      }
+      r.phase = 'ready'; r.startAt = 0; r.switchEndAt = 0; r.switchTick = 0; r.restEndAt = 0;
       return r;
 
     case 'finish': // end early, keeping every hold already recorded
-      r.phase = 'done'; r.startAt = 0; r.restEndAt = 0;
+      r.phase = 'done'; r.startAt = 0; r.switchEndAt = 0; r.restEndAt = 0;
       return r;
 
     default:
@@ -404,9 +465,14 @@ export function plankStep(run, action, now = Date.now()) {
  */
 export function plankResume(run, now = Date.now()) {
   if (!run) return run;
+  if (run.phase === 'switch') {
+    if (!run.switchEndAt) return { ...run, phase: 'ready', side: 'R', switchEndAt: 0, switchTick: 0, lastEvent: 'abandoned' };
+    if (plankSwitchSec(run, now) <= 0) return startRightSide(run, now);
+    return run;
+  }
   if (run.phase === 'hold') {
     if (!run.startAt || now - run.startAt > PLANK_ABANDON_MS) {
-      return { ...run, phase: 'ready', startAt: 0, restEndAt: 0, lastEvent: 'abandoned' };
+      return { ...run, phase: 'ready', startAt: 0, switchEndAt: 0, restEndAt: 0, lastEvent: 'abandoned' };
     }
     return run;
   }
@@ -428,7 +494,7 @@ export function setPlankActive(run) {
  * the same "local work that never reached the cloud must survive" rule the
  * session and weight lists follow. Sessions merge by id, and sets merge WITHIN
  * a shared session (two devices can each add a hold to the same run), keyed by
- * duration+timestamp so re-pulling the same doc never duplicates a hold.
+ * duration+timestamp+side so re-pulling the same doc never duplicates a hold.
  * Only ever called when local has unpushed changes, so an untouched local copy
  * still lets a deletion made on another device stick.
  */
@@ -438,7 +504,7 @@ export function mergePlankDoc(remote, local) {
   if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) return l;
   const out = { ...remote, sessions: remote.sessions.map((s) => ({ ...s, sets: [...(s.sets || [])] })) };
   const byId = new Map(out.sessions.map((s) => [s.id, s]));
-  const setKey = (x) => `${Number(x && x.sec) || 0}@${Number(x && x.at) || 0}`;
+  const setKey = (x) => `${Number(x && x.sec) || 0}@${Number(x && x.at) || 0}@${x && x.side || ''}`;
   for (const ls of l.sessions) {
     if (!ls || !ls.id) continue;
     const rs = byId.get(ls.id);
@@ -563,13 +629,14 @@ export function mergeIntervalDoc(remote, local) {
 }
 
 /** Headline numbers for the trainer screen. */
-export function plankStats() {
-  const pts = plankProgress();
+export function plankStats(mode = 'front') {
+  const selectedMode = okPlankMode(mode) ? mode : 'front';
+  const pts = plankProgress(selectedMode);
   return {
     sessions: pts.length,
     totalSets: pts.reduce((a, p) => a + p.sets, 0),
     totalSec: pts.reduce((a, p) => a + p.total, 0),
-    best: plankBest(),
+    best: plankBest(selectedMode),
     last: pts.length ? pts[pts.length - 1] : null,
   };
 }

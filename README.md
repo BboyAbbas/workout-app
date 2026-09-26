@@ -46,6 +46,12 @@ A stopwatch for holds, with the record on screen the whole time.
   field — never a plan and never a workout session, so it can't reach the up-next
   rotation or the strength records.
 
+**Side mode** pairs a left hold with a 5-second switch countdown, then a right
+hold before the normal rest. Start the right side early with one tap. Each side
+has its own record; the summary shows both holds, totals and balance. Side history
+and progress stay separate from Front, with the chart tracking the weaker side.
+The mode choice syncs with your plank settings; countdowns and holds survive reloads.
+
 ## Interval Trainer
 
 A Timer Plus-style interval timer for the treadmill or the bike.

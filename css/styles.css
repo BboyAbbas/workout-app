@@ -455,6 +455,9 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
 }
 .plank-hero-sub { font-size: 13px; color: var(--muted); }
+.plank-modes { margin-bottom: 14px; }
+.plank-hero-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.plank-hero-sides .plank-hero-v { font-size: 40px; }
 
 /* one row, five options, never wrapping a lone chip onto its own line */
 .plank-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
@@ -482,6 +485,7 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
   transition: stroke-dashoffset 0.25s linear, stroke 0.3s ease;
 }
 .plank-ring-wrap.resting .plank-ring-fill { stroke: #6aa9ff; }
+.plank-ring-wrap.switching .plank-ring-fill { stroke: #8b93a7; }
 .plank-ring-wrap.past-best .plank-ring-fill { stroke: var(--gold); }
 .plank-ring-wrap.past-best { animation: plank-glow 1.6s ease-in-out infinite; border-radius: 50%; }
 @keyframes plank-glow {
@@ -543,6 +547,8 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 .plank-totals .stat-v { font-size: 22px; font-variant-numeric: tabular-nums; }
 .plank-summary-set b { font-variant-numeric: tabular-nums; }
 .plank-summary-set b.top { color: var(--accent); }
+.plank-side-totals .stat-l:last-child { margin-top: 8px; }
+.plank-balance { align-self: center; }
 
 .plank-hist-row .dur { font-variant-numeric: tabular-nums; }
 .plank-hist-row .plank-del { width: 40px; min-width: 40px; height: 40px; opacity: 0.65; }

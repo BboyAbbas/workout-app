@@ -1039,6 +1039,113 @@ function check(cond, msg) {
   await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
+  console.log('  · Side mode: mode, left, timestamped switch, right, balance');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#plank-card');
+  const frontHomeBest = ((await page.locator('#plank-card .plank-home-best').textContent()) || '').replace(/\s+/g, ' ').trim();
+  await page.goto(BASE + '/#/plank');
+  await page.waitForSelector('#plank-start');
+  check((await page.locator('[data-plank-mode="side"]').count()) === 1, 'Side mode chip is available');
+  check(((await page.locator('[data-plank-mode="front"]').textContent()) || '').trim() === 'Front'
+    && ((await page.locator('[data-plank-mode="side"]').textContent()) || '').trim() === 'Side', 'mode chips read Front and Side');
+  await page.locator('[data-plank-mode="side"]').click();
+  check((await page.locator('[data-plank-mode="side"].on').count()) === 1, 'Side mode is selected');
+  const sideHero = ((await page.locator('.plank-hero').textContent()) || '').replace(/\s+/g, ' ');
+  check(sideHero.includes('Left best') && sideHero.includes('Right best'), 'Side setup shows separate left and right records');
+  await page.reload();
+  await page.waitForSelector('#plank-start');
+  check((await page.locator('[data-plank-mode="side"].on').count()) === 1, 'Side mode survives a reload');
+  await page.locator('[data-sets="1"]').click();
+  await page.locator('[data-rest="30"]').click();
+  await page.locator('#plank-start').click();
+  await page.waitForSelector('.plank-stage-hold');
+  check(((await page.locator('.plank-side-label').textContent()) || '').trim() === 'LEFT', 'Side run starts on LEFT');
+  check(((await page.locator('.topbar h1').textContent()) || '').trim() === 'Left side', 'left hold names its side in the top bar');
+  await page.waitForTimeout(1300);
+  const vibesBeforeSwitch = await page.evaluate(() => window.__vibes.length);
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-stage-switch');
+  check(((await page.locator('.plank-side-label').textContent()) || '').trim() === 'SWITCH', 'switch state is labeled');
+  check(await page.locator('#plank-switch-time').isVisible(), 'switch countdown appears on the ring');
+  check(await page.locator('#plank-switch-now').isVisible(), 'Start right side now button can skip countdown');
+  const leftSaved = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_planks_v1') || '{}');
+    const s = (d.sessions || []).find((x) => x.mode === 'side');
+    return s && s.sets[0];
+  });
+  check(leftSaved && leftSaved.side === 'L' && leftSaved.sec >= 1, 'Done saves left hold immediately as side L');
+  const switchBeforeReload = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_plank_active_v1') || '{}').switchEndAt);
+  check(switchBeforeReload > Date.now(), 'switch countdown has a future timestamp');
+  check(((await page.locator('.plank-stage-switch').textContent()) || '').includes('Right side next'), 'switch screen cues right side next');
+  check((await page.evaluate(() => window.__vibes.length)) > vibesBeforeSwitch, 'switch start buzzes');
+  await page.reload();
+  await page.waitForSelector('.plank-stage-switch');
+  const switchAfterReload = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_plank_active_v1') || '{}').switchEndAt);
+  const vibesAfterReload = await page.evaluate(() => window.__vibes.length);
+  check(switchAfterReload === switchBeforeReload, 'switch end timestamp survives reload unchanged');
+  await page.waitForFunction(() => {
+    const n = document.querySelector('.plank-side-label');
+    return n && n.textContent.trim() === 'RIGHT';
+  }, null, { timeout: 7000 });
+  check(((await page.locator('.topbar h1').textContent()) || '').trim() === 'Right side', 'countdown starts right hold automatically');
+  const rightStart = await page.evaluate(() => {
+    const a = JSON.parse(localStorage.getItem('wt_plank_active_v1') || '{}');
+    return { side: a.side, startAt: a.startAt, switchEndAt: a.switchEndAt };
+  });
+  check(rightStart.side === 'R' && rightStart.startAt === switchAfterReload, 'right clock starts at switch end');
+  check((await page.evaluate(() => window.__vibes.length)) > vibesAfterReload, 'right side start buzzes');
+  await page.waitForTimeout(2600);
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-summary');
+  const sideSaved = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_planks_v1') || '{}');
+    return (d.sessions || []).find((x) => x.mode === 'side');
+  });
+  check(sideSaved && sideSaved.sets.length === 2 && sideSaved.sets[0].side === 'L' && sideSaved.sets[1].side === 'R',
+    'one Side set stores left and right holds in order');
+  const sideSummary = ((await page.locator('.plank-summary').textContent()) || '').replace(/\s+/g, ' ');
+  check(/Set 1\s+L\s+0:\d{2}\s*·\s*R\s+0:\d{2}/.test(sideSummary), 'Side summary shows both holds on one set row');
+  const sidePBs = await page.locator('.plank-pb-banner').allTextContents();
+  check(sidePBs.length === 2 && sidePBs.some((x) => /First left/i.test(x)) && sidePBs.some((x) => /First right/i.test(x)),
+    'summary celebrates each side first hold separately');
+  const leftSec = sideSaved.sets.find((s) => s.side === 'L').sec;
+  const rightSec = sideSaved.sets.find((s) => s.side === 'R').sec;
+  const balance = ((await page.locator('.plank-balance').textContent()) || '').replace(/\s+/g, ' ').trim();
+  const shortSide = leftSec === rightSec ? `Even — both sides ${Math.floor(leftSec / 60)}:${String(leftSec % 60).padStart(2, '0')}`
+    : `${leftSec < rightSec ? 'Left' : 'Right'} side is ${Math.abs(leftSec - rightSec)} s shorter`;
+  check(balance === shortSide, `balance compares best hold on each side (${balance})`);
+  await page.locator('#plank-done').click();
+  await page.waitForSelector('#plank-start');
+  check((await page.locator('.plank-hist-row').count()) === 1, 'Side history shows Side sessions only');
+  const sideHistory = ((await page.locator('.plank-hist-row').first().textContent()) || '').replace(/\s+/g, ' ');
+  check(sideHistory.includes('L ') && sideHistory.includes('R '), 'Side history row lists both sides');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_planks_v1') || '{}');
+    const t = Date.now() - 86400000;
+    d.sessions.push({ id: 'side-chart-fixture', mode: 'side', t, endedAt: t,
+      sets: [{ side: 'L', sec: 38, at: t }, { side: 'R', sec: 35, at: t + 90000 }] });
+    localStorage.setItem('wt_planks_v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForSelector('#plank-start');
+  check((await page.locator('.plank-hist-row').count()) === 2, 'Side setup includes both Side sessions after a second-session fixture');
+  const sideChartTitle = ((await page.locator('body').textContent()) || '').replace(/\s+/g, ' ');
+  check(sideChartTitle.includes('Best hold per session') && sideChartTitle.includes('weaker side'), 'Side chart identifies weaker-side progress');
+  await page.locator('[data-plank-mode="front"]').click();
+  const frontSessionCount = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('wt_planks_v1') || '{}');
+    return (d.sessions || []).filter((s) => !s.mode || s.mode === 'front').length;
+  });
+  check((await page.locator('.plank-hist-row').count()) === frontSessionCount, 'Front history excludes Side sessions and treats old sessions as Front');
+  const frontHero = ((await page.locator('.plank-hero').textContent()) || '').replace(/\s+/g, ' ');
+  check(!frontHero.includes('Left best') && !frontHero.includes('Right best'), 'Front setup keeps its single Front record');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#plank-card');
+  const frontHomeAfter = ((await page.locator('#plank-card .plank-home-best').textContent()) || '').replace(/\s+/g, ' ').trim();
+  check(frontHomeAfter === frontHomeBest, 'Side holds do not change the front home record');
+  await page.goto(BASE + '/#/plank');
+  await page.waitForSelector('#plank-start');
+
   console.log('\n[7i] Interval Trainer — home, setup, run, summary, finisher');
   // The preceding cloud-pull test applies empty plans and workout sessions.
   // Rebuild this journey's Cardio placement and heatmap fixtures explicitly.
