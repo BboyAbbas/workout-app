@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interval Trainer mockups</title>
+<!-- the app's REAL stylesheet: every existing component below is the live CSS -->
+<link rel="stylesheet" href="../../../css/styles.css">
+<style>
+  /* ---------- page chrome (mockup only, not app CSS) ---------- */
+  body { -webkit-user-select: text; user-select: text; }
+  .page { max-width: 2200px; margin: 0 auto; padding: 28px 28px 60px; }
+  .page h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .page .lede { color: var(--muted); margin: 0 0 26px; max-width: 900px; font-size: 15px; }
+  .row { display: flex; flex-wrap: wrap; gap: 34px; align-items: flex-start; }
+  .shot { width: 390px; }
+  .shot h2 { font-size: 15px; margin: 0 0 4px; }
+  .shot .cap { font-size: 13px; color: var(--muted); margin: 0 0 12px; min-height: 36px; }
+  .phone {
+    width: 390px; height: 844px; border-radius: 34px; overflow: hidden;
+    border: 1px solid #2a2f3a; background: var(--bg); position: relative;
+    transform: translateZ(0); /* fixed children (FAB, run-foot, toast) pin to the phone */
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .phone .scroll { height: 100%; overflow-y: auto; scrollbar-width: none; }
+  .phone .scroll::-webkit-scrollbar { display: none; }
+  .phone .app { padding-bottom: 110px; }
+  .notes { margin: 14px 4px 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+  .notes li { margin: 0 0 7px; padding-left: 16px; position: relative; line-height: 1.45; }
+  .notes li::before { content: ''; position: absolute; left: 0; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .notes li.new::before { background: #6aa9ff; }
+  .notes b { color: var(--text); font-weight: 650; }
+  .legend-page { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 26px; font-size: 13px; color: var(--muted); }
+  .legend-page span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend-page i { width: 22px; height: 8px; border-radius: 4px; display: inline-block; }
+  .fake-ex .hint-cols, .fake-ex .set-row { grid-template-columns: 40px 1fr 1fr; }
+
+  /* =====================================================================
+     NEW COMPONENTS — these are the proposed additions to css/styles.css
+     ===================================================================== */
+  :root {
+    --iv-hard: var(--accent);   /* effort = the app's green, same as a plank hold */
+    --iv-easy: #6aa9ff;         /* recovery = the plank rest blue */
+    --iv-warm: #8b93a7;         /* warm-up / cool-down = calm slate bookends */
+  }
+
+  /* home card: same anatomy as the Plank Trainer card */
+  .iv-home-best b .of { font-size: 14px; color: var(--muted); font-weight: 650; }
+
+  /* live-workout finisher entry */
+  .iv-finisher { display: flex; align-items: center; gap: 14px; border-style: dashed; }
+  .iv-finisher .meta { flex: 1; min-width: 0; }
+  .iv-finisher .name { font-size: 16px; font-weight: 620; margin: 0 0 3px; }
+  .iv-finisher .desc { font-size: 13px; color: var(--muted); margin: 0; }
+
+  /* the whole session as one proportional strip */
+  .iv-strip { display: flex; gap: 3px; width: 100%; height: 10px; }
+  .iv-strip i { display: block; border-radius: 3px; background: var(--iv-warm); position: relative; overflow: hidden; }
+  .iv-strip i.hard { background: var(--iv-hard); }
+  .iv-strip i.easy { background: var(--iv-easy); }
+  .iv-strip.live i.past { opacity: 0.28; }
+  .iv-strip.live i.future { opacity: 0.55; }
+  .iv-strip.live i.now { opacity: 1; outline: 2px solid rgba(244,246,248,0.9); outline-offset: 1px; }
+  .iv-strip.live i.now::after { /* time already spent inside the current block */
+    content: ''; position: absolute; inset: 0 auto 0 0; width: var(--done, 0%);
+    background: rgba(15,17,21,0.55);
+  }
+
+  /* setup: preset hero */
+  .iv-hero { padding: 18px 16px 16px;
+    background: radial-gradient(120% 100% at 50% 0%, rgba(52,211,153,0.10), transparent 70%), var(--surface); }
+  .iv-hero-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .iv-hero-name { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; }
+  .iv-hero-total { font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; }
+  .iv-hero-total span { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .iv-hero-sub { font-size: 13px; color: var(--muted); margin: 2px 0 14px; display: flex; justify-content: space-between; }
+  .iv-hero .iv-strip { height: 12px; }
+
+  /* setup: timing rows with steppers (reuses .rest-step) */
+  .iv-rows { padding: 4px 16px; }
+  .iv-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+  .iv-row:last-child { border-bottom: none; }
+  .iv-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--iv-warm); flex: none; }
+  .iv-dot.hard { background: var(--iv-hard); } .iv-dot.easy { background: var(--iv-easy); } .iv-dot.none { background: transparent; border: 1px solid var(--border); }
+  .iv-row-l { flex: 1; font-size: 15px; font-weight: 600; }
+  .iv-row-l small { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .iv-row .rest-ctl-val { min-width: 58px; font-size: 17px; }
+  .iv-row .rest-step { width: 40px; height: 40px; }
+
+  /* setup: progression line — same green "→" language as the strength targets */
+  .iv-prog { display: flex; align-items: center; gap: 12px; }
+  .iv-prog .l { flex: 1; font-size: 13px; color: var(--muted); }
+  .iv-prog .l b { color: var(--text); font-size: 15px; }
+  .iv-prog .t { text-align: right; line-height: 1.15; }
+  .iv-prog .t b { display: block; color: var(--accent); font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .iv-prog .t span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+  .iv-chips5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .iv-chips5 .chip-tab { min-width: 0; min-height: 46px; font-size: 13px; padding: 0 2px; letter-spacing: -0.01em; }
+  .iv-chips2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .iv-chips2 .chip-tab { min-height: 48px; font-size: 15px; }
+
+  /* run: the stage takes the phase colour */
+  .iv-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 4px; }
+  .iv-stage::before { /* soft phase-coloured glow behind the ring: readable from the treadmill */
+    content: ''; position: absolute; left: -18px; right: -18px; top: 20px; height: 420px; z-index: -1;
+    background: radial-gradient(60% 50% at 50% 45%, var(--glow), transparent 75%);
+  }
+  .iv-stage.hard { --ph: var(--iv-hard); --glow: rgba(52,211,153,0.16); }
+  .iv-stage.easy { --ph: var(--iv-easy); --glow: rgba(106,169,255,0.16); }
+  .iv-stage.warm { --ph: var(--iv-warm); --glow: rgba(139,147,167,0.12); }
+  .iv-stage > .btn { width: 100%; }
+  .iv-stage .plank-ring-wrap { width: min(84vw, 318px); }
+  .iv-stage .plank-ring-fill { stroke: var(--ph); stroke-width: 13; }
+  .iv-phase { font-size: 15px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ph); }
+  .iv-time { font-size: 76px; font-weight: 780; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1; }
+  .iv-round { font-size: 14px; color: var(--muted); font-weight: 600; }
+  .iv-pace { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted);
+    border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 7px 14px; }
+  .iv-pace b { color: var(--accent); font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  /* run: what comes next */
+  .iv-next { width: 100%; display: flex; align-items: center; gap: 12px; margin: 0; padding: 13px 16px;
+    border-left: 4px solid var(--nx); }
+  .iv-next.easy { --nx: var(--iv-easy); } .iv-next.hard { --nx: var(--iv-hard); } .iv-next.warm { --nx: var(--iv-warm); }
+  .iv-next .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+  .iv-next .v { flex: 1; font-size: 17px; font-weight: 700; }
+  .iv-next .v span { color: var(--nx); }
+  .iv-next .r { font-size: 13px; color: var(--muted); }
+  /* last 7 s of a block: the next block announces itself */
+  .iv-next.soon { border: 1px solid var(--nx); border-left-width: 4px;
+    background: color-mix(in srgb, var(--nx) 14%, var(--surface));
+    animation: iv-soon 1s ease-in-out infinite; }
+  .iv-next.soon .k { color: var(--nx); }
+  .iv-next.soon .r b { color: var(--text); font-size: 15px; }
+  @keyframes iv-soon { 0%,100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 22px -2px var(--nx); } }
+  .iv-stage.soon .iv-time { animation: iv-tick 1s ease-in-out infinite; }
+  @keyframes iv-tick { 0%,100% { transform: none; } 12% { transform: scale(1.06); } }
+  @media (prefers-reduced-motion: reduce) { .iv-next.soon, .iv-stage.soon .iv-time { animation: none; } }
+
+  /* run: transport controls */
+  .iv-ctrl { display: flex; gap: 10px; width: 100%; }
+  .iv-ctrl .btn { height: 64px; }
+  .iv-ctrl .iv-side { width: 64px; padding: 0; flex: none; }
+  .iv-ctrl .iv-side svg { width: 22px; height: 22px; }
+  .iv-ctrl .btn-primary { flex: 1; font-size: 18px; font-weight: 750; }
+  .iv-ctrl .btn-primary svg { width: 22px; height: 22px; }
+
+  /* summary: pace entry */
+  .iv-pace-in { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 6px 0 4px; }
+  .iv-pace-in .rest-step { width: 52px; height: 52px; font-size: 24px; border-radius: 12px; }
+  .iv-pace-in .input { width: 130px; font-size: 32px; font-weight: 750; text-align: center; padding: 8px 6px;
+    border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: rgba(52,211,153,0.06); }
+  .iv-pace-in .u { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .iv-pace-hint { text-align: center; font-size: 13px; color: var(--muted); }
+  .iv-pace-hint b { color: var(--accent); }
+  .iv-tag { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-2); padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Interval Trainer — mockups</h1>
+  <p class="lede">Every card, chip, button and ring below uses the app's real stylesheet. Only the parts marked in blue in the notes are new. Scroll inside a phone to see its full screen.</p>
+  <div class="legend-page">
+    <span><i style="background:#8b93a7"></i> Warm-up / cool-down (calm slate)</span>
+    <span><i style="background:#34d399"></i> Hard (the app's green — same as a plank hold)</span>
+    <span><i style="background:#6aa9ff"></i> Easy (the plank rest blue)</span>
+  </div>
+
+  <div class="row" id="row"></div>
+</div>
+
+<script>
+/* ---------- icons: the app's own set + four new ones ---------- */
+const svg = (p, extra = '') => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
+const I = {
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  back: svg('<path d="M15 18l-6-6 6-6"/>'),
+  play: svg('<path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/>'),
+  trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
+  history: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/>'),
+  chart: svg('<path d="M3 21h18M7 21V11M12 21V5M17 21V14"/>'),
+  check: svg('<path d="M20 6L9 17l-5-5"/>'),
+  gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
+  timer: svg('<path d="M10 2.5h4"/><path d="M12 14V9.5"/><circle cx="12" cy="14" r="8"/>'),
+  trophy: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5H5v1a3 3 0 0 0 3 3M16 5h3v1a3 3 0 0 1-3 3"/><path d="M12 13v4M9 21h6M10 17h4"/>'),
+  // new
+  pulse: svg('<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'),
+  sound: svg('<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'),
+  pause: svg('<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/>'),
+  next: svg('<path d="M5 4.5l10 7.5-10 7.5z" fill="currentColor" stroke="none"/><path d="M19 5v14"/>'),
+  prev: svg('<path d="M19 19.5L9 12l10-7.5z" fill="currentColor" stroke="none"/><path d="M5 5v14"/>'),
+};
+
+const topbar = (title, { back = true, sub = '', right = '' } = {}) => `
+  <header class="topbar">
+    ${back ? `<button class="icon-btn">${I.back}</button>` : ''}
+    <div style="flex:1;min-width:0"><h1>${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
+    ${right}
+  </header>`;
+
+/* Norwegian 4x4 as blocks (seconds): warm 10, 4x hard 4 / easy 3 (no easy after the last hard), cool 5 */
+const B = [['warm',600],['hard',240],['easy',180],['hard',240],['easy',180],['hard',240],['easy',180],['hard',240],['warm',300]];
+function strip(nowIdx = -1, donePct = 0) {
+  return `<div class="iv-strip${nowIdx >= 0 ? ' live' : ''}">${B.map(([k, s], i) => {
+    const st = nowIdx < 0 ? '' : i < nowIdx ? ' past' : i === nowIdx ? ' now' : ' future';
+    const style = `flex:${s} 1 0;${i === nowIdx ? `--done:${donePct}%` : ''}`;
+    return `<i class="${k}${st}" style="${style}"></i>`;
+  }).join('')}</div>`;
+}
+const RING_C = 2 * Math.PI * 86;
+const ring = (pct, mid) => `
+  <div class="plank-ring-wrap">
+    <svg class="plank-ring" viewBox="0 0 200 200"><circle class="plank-ring-bg" cx="100" cy="100" r="86"/>
+      <circle class="plank-ring-fill" cx="100" cy="100" r="86" stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${(RING_C * (1 - pct)).toFixed(1)}"/></svg>
+    <div class="plank-ring-mid">${mid}</div>
+  </div>`;
+
+function heat() {
+  let cells = '';
+  const lv = [0,0,2,0,3,0,0, 2,0,3,0,0,2,0, 3,0,2,0,3,0,0, 0,2,0,3,0,2,0, 2,0,3,0,2,0,0, 3,0,2,0,3,0,0, 2,1,3,0,2,1,0, 3,0,2,1,3,0,0, 2,1,3,0,2,1,0, 3,1,2,0,3,1,0, 2,1,3,1,2,0,0, 3,1,2,0,3,1,0, 2,1,3,-1,-1,-1,-1];
+  lv.forEach((l) => { cells += l < 0 ? '<div class="cal-cell cal-future"></div>' : `<div class="cal-cell cal-l${l}"></div>`; });
+  return `<div class="section-label">Consistency</div><div class="card"><div class="cal">${cells}</div>
+    <div class="cal-legend"><span>best streak <b>4</b> days</span><span class="cal-key">less ${[0,1,2,3,4].map((l) => `<i class="cal-cell cal-l${l}"></i>`).join('')} more</span></div></div>`;
+}
+const planCard = (name, desc) => `
+  <div class="card plan-card"><div class="meta"><p class="name">${name}</p><p class="desc">${desc}</p></div>
+  <button class="icon-btn btn-primary" style="border-radius:12px">${I.play}</button></div>`;
+
+/* ================= screens ================= */
+const S = [];
+
+/* 1. HOME */
+S.push({ t: '1 · Home — standalone days', c: 'Scrolled to the bottom. One "Trainers" label now holds both trainers, directly under the Cardio plan.', html: `
+  ${topbar('Workouts', { back: false, sub: '6 plans', right: `<button class="icon-btn">${I.chart}</button><button class="icon-btn">${I.history}</button><button class="icon-btn">${I.gear}</button>` })}
+  <main class="screen">
+    ${planCard('Upper', '5 exercises · 3 days ago')}
+    ${planCard('Lower', '5 exercises · 2 days ago')}
+    <div class="rest-sep"><span>rest day</span></div>
+    ${planCard('Cardio', '1 exercises · 9 days ago')}
+    <div class="section-label">Trainers</div>
+    <div class="card plank-home tappable">
+      <div class="plank-home-icon">${I.pulse}</div>
+      <div class="meta"><p class="name">Interval Trainer</p><p class="desc">4×4 · 12.0 km/h · 2 days ago</p></div>
+      <div class="plank-home-best iv-home-best"><b>1<span class="of">/2</span></b><span>this week</span></div>
+    </div>
+    <div class="card plank-home tappable">
+      <div class="plank-home-icon">${I.timer}</div>
+      <div class="meta"><p class="name">Plank Trainer</p><p class="desc">6 sessions · 18m held in total</p></div>
+      <div class="plank-home-best"><b>1:32</b><span>best</span></div>
+    </div>
+    ${heat()}
+  </main>
+  <button class="fab">${I.plus}<span>Plan</span></button>`,
+  notes: [
+    ['new', '<b>Same card shape as Plank Trainer</b>: green icon tile, name, one grey line, one big number on the right.'],
+    ['new', 'Right side shows <b>sessions this week vs the 4×4 dose (2)</b>, not a record. Frequency is what makes the 4×4 work.'],
+    ['', 'Label "Plank" becomes <b>"Trainers"</b>. Interval Trainer sits first, because it is cardio and sits next to the Cardio plan.'],
+    ['', 'Interval days <b>count on the Consistency heatmap</b>: 1 hard round = 1 set.'],
+  ] });
+
+/* 2. LIVE WORKOUT — finisher */
+S.push({ t: '2 · End of a normal workout', c: 'The live Push workout, scrolled to the bottom. The finisher card sits after the last exercise.', html: `
+  <div class="timer-bar"><div style="flex:1"><div class="label">Elapsed</div><div class="time">52:10</div></div></div>
+  <main class="screen" style="padding-bottom:200px">
+    <div class="card run-ex fake-ex">
+      <p class="name">Triceps Pushdown</p>
+      <p class="lasttime">Last time <b>25 kg × 12</b></p>
+      <div class="hint-cols"><span>#</span><span>KG</span><span>REPS</span></div>
+      ${[1,2,3].map((n) => `<div class="set-row done"><div class="set-n">${I.check}</div><div class="cell"><input class="input" value="25"></div><div class="cell"><input class="input" value="${[12,11,10][n-1]}"></div></div>`).join('')}
+    </div>
+    <div class="card iv-finisher tappable">
+      <div class="plank-home-icon">${I.pulse}</div>
+      <div class="meta"><p class="name">Add an interval finisher</p><p class="desc">4×4 · warm-up 3:00 · → 12.5 km/h</p></div>
+      <button class="icon-btn btn-primary" style="border-radius:12px">${I.play}</button>
+    </div>
+    <div class="card">
+      <p class="name" style="margin:0 0 8px;font-weight:620">Session notes</p>
+      <textarea class="input" rows="2" placeholder="Anything about this session…" style="width:100%;font:inherit"></textarea>
+    </div>
+    <div class="spacer"></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-danger">Discard</button><button class="btn btn-primary" style="flex:1">${I.check} Finish workout</button></div>
+  </main>
+  <footer class="run-foot"><div></div><button class="btn btn-primary btn-block log-pinned">All sets logged</button></footer>`,
+  notes: [
+    ['new', '<b>One dashed card</b> after the last exercise. It is dashed because it is optional, not part of the plan.'],
+    ['', 'The <b>workout clock keeps running</b> during the intervals, so the workout time includes the finisher.'],
+    ['', 'After the intervals you land <b>back here</b>, then tap Finish workout as usual.'],
+    ['', 'The interval session <b>remembers it followed "Push"</b> and shows that tag in its history.'],
+  ] });
+
+/* 3. SETUP */
+S.push({ t: '3 · Setup', c: 'Pick a preset, change any number, see the whole session as one strip. Scroll for stats and history.', html: `
+  ${topbar('Intervals', { sub: '5 sessions logged' })}
+  <main class="screen">
+    <div class="iv-chips5">
+      <button class="chip-tab on">4×4</button><button class="chip-tab">Sprints</button><button class="chip-tab">Tabata</button><button class="chip-tab">10×1</button><button class="chip-tab">Custom</button>
+    </div>
+    <div class="spacer"></div><div class="spacer"></div>
+    <div class="card iv-hero">
+      <div class="iv-hero-top"><div class="iv-hero-name">Norwegian 4×4</div><div class="iv-hero-total">40<span> min</span></div></div>
+      <div class="iv-hero-sub"><span>Raises VO₂ max · 1–2× a week</span><span>16 min hard</span></div>
+      ${strip()}
+    </div>
+    <div class="section-label">Timing</div>
+    <div class="card iv-rows">
+      <div class="iv-row"><i class="iv-dot"></i><div class="iv-row-l">Warm-up<small>easy pace</small></div><button class="rest-step">−</button><div class="rest-ctl-val">10:00</div><button class="rest-step">+</button></div>
+      <div class="iv-row"><i class="iv-dot hard"></i><div class="iv-row-l">Hard<small>only a few words out</small></div><button class="rest-step">−</button><div class="rest-ctl-val">4:00</div><button class="rest-step">+</button></div>
+      <div class="iv-row"><i class="iv-dot easy"></i><div class="iv-row-l">Easy<small>easy jog or walk</small></div><button class="rest-step">−</button><div class="rest-ctl-val">3:00</div><button class="rest-step">+</button></div>
+      <div class="iv-row"><i class="iv-dot none"></i><div class="iv-row-l">Rounds</div><button class="rest-step">−</button><div class="rest-ctl-val">4</div><button class="rest-step">+</button></div>
+      <div class="iv-row"><i class="iv-dot"></i><div class="iv-row-l">Cool-down<small>easy pace</small></div><button class="rest-step">−</button><div class="rest-ctl-val">5:00</div><button class="rest-step">+</button></div>
+    </div>
+    <div class="section-label">Machine</div>
+    <div class="iv-chips2">
+      <button class="chip-tab on">Treadmill</button><button class="chip-tab">Bike</button>
+    </div>
+    <div class="spacer"></div><div class="spacer"></div>
+    <div class="card iv-prog">
+      <div class="l">Last 4×4 · Tue 22 Sep<br><b>12.0 km/h</b> · all 4 rounds</div>
+      <div class="t"><b>→ 12.5</b><span>today</span></div>
+    </div>
+    <button class="btn btn-primary btn-block plank-cta">${I.play} Start 4×4</button>
+    <div class="spacer"></div><div class="spacer"></div>
+    <div class="stat-grid">
+      <div class="card stat"><div class="stat-v">5</div><div class="stat-l">Sessions</div></div>
+      <div class="card stat"><div class="stat-v">1<span class="u">/2</span></div><div class="stat-l">This week</div></div>
+      <div class="card stat"><div class="stat-v">1h 12m</div><div class="stat-l">Hard time</div></div>
+      <div class="card stat"><div class="stat-v">12.0<span class="u">km/h</span></div><div class="stat-l">Best 4×4 pace</div></div>
+    </div>
+    <div class="section-label">History</div>
+    <div class="card hist-row plank-hist-row"><div class="when"><p class="date">Tue 22 Sep<span class="iv-tag">after Push</span></p><p class="summary">4×4 · Treadmill · 4/4 rounds</p></div><div class="dur">12.0</div><button class="icon-btn btn-danger plank-del">${I.trash}</button></div>
+    <div class="card hist-row plank-hist-row"><div class="when"><p class="date">Sat 19 Sep</p><p class="summary">Sprints · Bike · 8/8 rounds</p></div><div class="dur">L14</div><button class="icon-btn btn-danger plank-del">${I.trash}</button></div>
+    <div class="card hist-row plank-hist-row"><div class="when"><p class="date">Wed 16 Sep</p><p class="summary">4×4 · Treadmill · 3/4 rounds</p></div><div class="dur">11.5</div><button class="icon-btn btn-danger plank-del">${I.trash}</button></div>
+  </main>`,
+  notes: [
+    ['new', '<b>Preset chips</b> reuse the plank chip row. Each preset remembers your own numbers; "Custom" is your free slot.'],
+    ['new', '<b>The strip</b> shows the whole session to scale before you start. Same colours as the run screen.'],
+    ['new', 'Timing rows reuse the <b>± steppers</b> from the workout rest control. Hard ±15 s, easy ±15 s, warm-up/cool-down ±1 min.'],
+    ['new', '<b>Two machines only</b>: Treadmill and Bike. Treadmill logs speed, Bike logs resistance level.'],
+    ['', '<b>Progress target</b> uses the strength-plan language: last time in white, green "→ 12.5" for today. Target goes up one step (+0.5 km/h or +1 level) only when you finished every round.'],
+    ['', 'From a workout: warm-up starts at <b>3:00</b> (you are already warm). You can still change it.'],
+  ] });
+
+/* 4. RUN — HARD */
+S.push({ t: '4 · Run — hard phase', c: 'Round 2 of 4, 3:12 left in this hard block. Built to read from a treadmill stand.', html: `
+  ${topbar('Hard', { sub: 'Round 2 of 4 · 22:12 left', right: `<button class="icon-btn">${I.sound}</button>` })}
+  <main class="screen plank-screen">
+    <div class="iv-stage hard">
+      ${strip(3, 20)}
+      ${ring(0.8, `<div class="iv-phase">Go hard</div><div class="iv-time">03:12</div><div class="iv-round">round 2 of 4</div>`)}
+      <div class="iv-pace">Hold <b>12.5 km/h</b></div>
+      <div class="card iv-next easy"><div><div class="k">Next</div><div class="v"><span>Easy</span> 3:00</div></div><div class="r" style="margin-left:auto">then round 3</div></div>
+      <div class="iv-ctrl">
+        <button class="btn iv-side">${I.prev}</button>
+        <button class="btn btn-primary">${I.pause} Pause</button>
+        <button class="btn iv-side">${I.next}</button>
+      </div>
+      <button class="btn btn-ghost plank-sub">End session</button>
+    </div>
+  </main>`,
+  notes: [
+    ['new', '<b>One colour per phase</b> paints the ring, the phase word and a soft glow. You know the phase from across the room.'],
+    ['new', '<b>Live strip</b> on top: done blocks fade, the current block is outlined and fills as time passes.'],
+    ['new', '<b>"Hold 12.5 km/h"</b> shows only in hard blocks — the speed to set on the machine.'],
+    ['', '<b>Sound, every switch:</b> heads-up beep at 7 s → short ticks at 3-2-1 → long tone + voice ("Round 3 of 4. Go hard. 12.5.") + buzz. The speaker icon mutes it.'],
+    ['', '<b>⏮ / ⏭</b> restart or skip a block (the most-asked-for control in timer reviews). Screen stays on for the whole session.'],
+  ] });
+
+/* 5. RUN — EASY */
+S.push({ t: '5 · Run — easy, 7 s before the switch', c: 'Recovery block about to end. The heads-up beep just played; the next block lights up so you can raise the speed in time.', html: `
+  ${topbar('Easy', { sub: 'Round 2 of 4 · 16:07 left', right: `<button class="icon-btn">${I.sound}</button>` })}
+  <main class="screen plank-screen">
+    <div class="iv-stage easy soon">
+      ${strip(4, 96)}
+      ${ring(0.04, `<div class="iv-phase">Easy</div><div class="iv-time">00:07</div><div class="iv-round">round 3 next</div>`)}
+      <div class="iv-pace" style="visibility:hidden">Hold <b>0</b></div>
+      <div class="card iv-next hard soon"><div><div class="k">Get ready</div><div class="v"><span>Hard</span> in 7</div></div><div class="r" style="margin-left:auto;text-align:right">set the speed<br><b>12.5 km/h</b></div></div>
+      <div class="iv-ctrl">
+        <button class="btn iv-side">${I.prev}</button>
+        <button class="btn btn-primary">${I.pause} Pause</button>
+        <button class="btn iv-side">${I.next}</button>
+      </div>
+      <button class="btn btn-ghost plank-sub">End session</button>
+    </div>
+  </main>`,
+  notes: [
+    ['new', '<b>7 seconds before every switch</b>: a distinct heads-up beep, a short buzz, and the "next" card lights up in the colour of the next block. Enough time to raise the speed before the hard block.'],
+    ['', 'Easy uses the <b>plank rest blue</b>, so "blue = recover" means the same thing all over the app.'],
+    ['', '<b>Pause</b> freezes the clock and turns the button into "Resume". The strip and ring dim.'],
+    ['', 'A reload, a call, or a locked screen <b>never loses your place</b>: the clock is worked out from the start time, like the plank timer.'],
+  ] });
+
+/* 6. SUMMARY */
+S.push({ t: '6 · Summary', c: 'The session is already saved. You add the speed you held, then go back to your workout or home.', html: `
+  ${topbar('Intervals done', { sub: 'Norwegian 4×4 · Treadmill' })}
+  <main class="screen plank-screen">
+    <div class="plank-stage plank-summary">
+      <div class="plank-pb-banner first">${I.check}<b>All 4 rounds done</b><span>16:00 hard</span></div>
+      <div class="card plank-totals">
+        <div><div class="stat-l">Hard</div><div class="stat-v">16:00</div></div>
+        <div><div class="stat-l">Total</div><div class="stat-v">33:02</div></div>
+        <div><div class="stat-l">Rounds</div><div class="stat-v">4/4</div></div>
+      </div>
+      <div class="card">
+        <p class="name" style="margin:0 0 4px;font-weight:620;text-align:center">Speed on the hard rounds</p>
+        <div class="iv-pace-in"><button class="rest-step">−</button><input class="input" value="12.5"><span class="u">km/h</span><button class="rest-step">+</button></div>
+        <p class="iv-pace-hint">Last time 12.0 · target <b>→ 12.5</b></p>
+      </div>
+      <button class="btn btn-primary plank-cta">${I.check} Save · back to Push</button>
+      <button class="btn btn-ghost plank-sub">Skip — don't log a speed</button>
+      <div class="spacer"></div>
+    </div>
+  </main>`,
+  notes: [
+    ['', 'The time data is <b>saved the moment the session ends</b>, like each plank hold. Closing the app here loses nothing but the speed.'],
+    ['', 'The speed box starts <b>filled with today\'s target</b>. Hit it? One tap. Beat the best 4×4 speed? The banner turns <b>gold</b>, like a plank record.'],
+    ['', 'Standalone session: the button says <b>"Save"</b> and goes home. Finisher: <b>"Save · back to Push"</b>.'],
+    ['', 'Ending early (End session) saves only the <b>rounds you actually finished</b>.'],
+  ] });
+
+document.getElementById('row').innerHTML = S.map((s) => `
+  <section class="shot">
+    <h2>${s.t}</h2>
+    <p class="cap">${s.c}</p>
+    <div class="phone"><div class="scroll"><div class="app">${s.html}</div></div></div>
+    <ul class="notes">${s.notes.map(([k, n]) => `<li class="${k}">${n}</li>`).join('')}</ul>
+  </section>`).join('');
+</script>
+</body>
+</html>
