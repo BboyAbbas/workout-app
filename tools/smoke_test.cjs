@@ -1623,6 +1623,26 @@ function check(cond, msg) {
   await page.goto(BASE + '/#/');
   await page.waitForSelector('.plan-card');
 
+  console.log('\n[7t] Treadmill set shows distance + steps, live as you type');
+  await page.locator('.plan-card').filter({ hasText: 'Cardio' }).locator('[data-run]').click();
+  await page.waitForSelector('.run-ex .set-row');
+  const tmRow = page.locator('.run-ex').first().locator('.set-row[data-si="0"]');
+  await tmRow.locator('[data-f="minutes"]').fill('20');
+  await tmRow.locator('[data-f="speed"]').fill('3');
+  const est1 = ((await page.locator('.tm-est').first().textContent()) || '').trim();
+  check(est1 === '1.00 mi · ≈2,270 steps', `20 min at 3.0 shows 1.00 mi and ≈2,270 steps (${est1})`);
+  await tmRow.locator('[data-f="speed"]').fill('2');
+  const est2 = ((await page.locator('.tm-est').first().textContent()) || '').trim();
+  check(est2 === '0.67 mi · ≈1,920 steps', `changing the speed updates it at once (${est2})`);
+  const estBox = await page.locator('.tm-est').first().boundingBox();
+  const minBox = await tmRow.locator('[data-f="minutes"]').boundingBox();
+  check(estBox.y > minBox.y + minBox.height - 2 && Math.abs(estBox.x - minBox.x) < 12, 'the readout sits right under the inputs, aligned with them');
+  await tmRow.locator('[data-f="speed"]').fill('');
+  check(!(await page.locator('.tm-est').first().isVisible()), 'no speed -> no readout');
+  await page.evaluate(() => localStorage.removeItem('wt_active_v1'));
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
+
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));
 

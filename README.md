@@ -12,6 +12,13 @@ holds one shared JSON copy so the same data follows you across devices.
 - **Starter plans** — Push, Legs, Pull, Upper and Lower load themselves on a
   fresh device.
 - **Live workout** — running total timer, log reps + weight per set; add or remove sets for this workout only (removing a logged set asks first, never below one set).
+- **Treadmill distance + steps** — under each treadmill set, live as you type:
+  `1.00 mi · ≈2,270 steps`. Distance = speed (mph, as the gym's treadmill shows)
+  × time, the same as the machine's own distance. Steps = minutes × walking
+  cadence at that speed from the CADENCE-Adults level-treadmill table
+  (Tudor-Locke et al. 2019); incline is not factored in, and above 5.5 mph only
+  distance shows. The same figures appear in the plan's "last time" line and in
+  history.
 - **Progressive overload** — each exercise shows last session's actual numbers
   with a green "→ N" target: beat the reps, then the weight goes up a real,
   loadable step.

@@ -76,7 +76,7 @@ console.log('dayLog — nests linked sessions under their workout, keeps solo on
   ok('text: plank nested under the workout', /WORKOUT Push[\s\S]*\+ 16:30 during it: plank front · 2 holds \(1:00, 0:55\)/.test(text));
   ok('text: interval nested with pace', text.includes('during it: intervals Norwegian 4×4 · treadmill · 4/4 rounds · 16 min hard / 40 min total · 12 km/h'));
   ok('text: solo interval day', text.includes('2026-09-26 Sat — intervals only'));
-  ok('text: cardio minutes and settings', text.includes('Incline Walk: 30 min · incline 12 · speed 3'));
+  ok('text: cardio minutes, settings, distance and steps', text.includes('Incline Walk: 30 min · incline 12 · speed 3 · 1.50 mi · ≈3,410 steps'));
   ok('text: orphan link explained', text.includes('(during a Pull workout that was never saved)'));
 }
 

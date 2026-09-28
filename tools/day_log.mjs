@@ -9,6 +9,7 @@
 
    Pure: no storage, no network. Dates are the machine's local time. */
 import { PRESETS } from '../js/intervals.js';
+import { treadmillEstimate, fmtTreadmill } from '../js/ui.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
@@ -90,7 +91,13 @@ function setsText(e) {
   const min = e.sets.reduce((m, s) => m + (Number(s.minutes) || 0), 0);
   const first = e.sets[0] || {};
   const extra = Object.keys(first).filter((k) => k !== 'minutes').map((k) => `${k} ${first[k]}`);
-  return [`${min} min`, ...extra].join(' · ');
+  // treadmill: summed distance + steps (steps only when every set's speed is in the table)
+  const ests = e.sets.map((s) => treadmillEstimate(s.minutes, s.speed)).filter(Boolean);
+  const tm = ests.length ? fmtTreadmill({
+    miles: ests.reduce((a, x) => a + x.miles, 0),
+    steps: ests.every((x) => x.steps != null) ? ests.reduce((a, x) => a + x.steps, 0) : null,
+  }) : '';
+  return [`${min} min`, ...extra, tm].filter(Boolean).join(' · ');
 }
 
 /** Readable text of dayLog() output. */

@@ -164,10 +164,49 @@ export function summariseSets(sets) {
 export function summariseCardio(sets, fields) {
   const done = (sets || []).filter((s) => s && s.minutes != null && s.minutes !== '');
   if (!done.length) return '';
-  const one = (s) => (fields || []).map((f) => {
+  const treadmill = (fields || []).some((f) => f.key === 'speed');
+  const one = (s) => [...(fields || []).map((f) => {
     const v = s[f.key];
     if (v == null || v === '') return null;
     return f.key === 'minutes' ? `${v} min` : `${f.label.toLowerCase()} ${v}`;
-  }).filter(Boolean).join(' · ');
+  }), treadmill ? fmtTreadmill(treadmillEstimate(s.minutes, s.speed)) : null].filter(Boolean).join(' · ');
   return done.map(one).join(', ');
+}
+
+/* ---------- treadmill distance + steps ----------
+   Distance is belt distance: speed × time, with speed in mph as the gym's
+   treadmill shows it — the same number as the machine's own "distance".
+   Steps = minutes × walking cadence at that speed, interpolated from the
+   CADENCE-Adults level-treadmill table (Tudor-Locke et al. 2019, IJBNPA 16:8,
+   76 adults, mean height 170.7 cm). Incline is left out: at a set belt speed it
+   shifts cadence only slightly and not consistently. Outside the measured
+   0.5–5.5 mph range steps are not estimated (distance still is). */
+const CADENCE_MPH = [[0.5, 45.4], [1, 67.8], [1.5, 83.8], [2, 96.1], [2.5, 105.8], [3, 113.6],
+  [3.5, 121.5], [4, 129.0], [4.5, 139.9], [5, 146.4], [5.5, 152.0]];
+const toNum = (v) => Number(String(v ?? '').replace(',', '.'));
+/** Steps per minute at a treadmill speed in mph (null outside 0.5–5.5). */
+export function cadenceAt(mph) {
+  const v = toNum(mph);
+  if (!(v >= 0.5 && v <= 5.5)) return null;
+  for (let i = 1; i < CADENCE_MPH.length; i++) {
+    const [s1, c1] = CADENCE_MPH[i];
+    if (v <= s1) {
+      const [s0, c0] = CADENCE_MPH[i - 1];
+      return c0 + ((c1 - c0) * (v - s0)) / (s1 - s0);
+    }
+  }
+  return null;
+}
+/** {miles, steps} for one treadmill set (steps null when the speed is outside the table), or null. */
+export function treadmillEstimate(minutes, mph) {
+  const m = toNum(minutes), v = toNum(mph);
+  if (!(m > 0) || !(v > 0)) return null;
+  const cad = cadenceAt(v);
+  return { miles: (v * m) / 60, steps: cad == null ? null : Math.round(cad * m) };
+}
+/** "1.00 mi · ≈2,270 steps" (steps to the nearest 10), or '' with nothing to show. */
+export function fmtTreadmill(est) {
+  if (!est) return '';
+  const mi = `${est.miles.toFixed(2)} mi`;
+  return est.steps == null ? mi : `${mi} · ≈${(Math.round(est.steps / 10) * 10).toLocaleString('en-US')} steps`;
 }

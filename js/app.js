@@ -10,7 +10,7 @@ import { initSync, pull, push } from './sync.js';
 import { ensurePushSubscribed, scheduleServerRestAlert, cancelServerRestAlert, scheduleWorkoutWatchdog, cancelWorkoutWatchdog } from './push.js';
 import {
   esc, fmtClock, fmtDuration, fmtDate, fmtAgo, fmtTime, fmtInt, fmtHold,
-  icons, toast, summariseSets, summariseCardio,
+  icons, toast, summariseSets, summariseCardio, treadmillEstimate, fmtTreadmill,
 } from './ui.js';
 
 const app = document.getElementById('app');
@@ -719,15 +719,17 @@ function screenRun(planId) {
       if (DB.isCardio(en)) {
         const fields = en.fields || DB.cardioFields(en.kind);
         const cols = `grid-template-columns:40px repeat(${fields.length},1fr)`;
+        const treadmill = fields.some((f) => f.key === 'speed');
         const crows = en.sets.map((s, si) => {
           const isActive = activeSel && activeSel.exId === exId && activeSel.si === si;
           const inputs = fields.map((f) =>
             `<div class="cell"><input class="input" data-f="${f.key}" inputmode="decimal" enterkeyhint="go" placeholder="${esc(f.ph)}" value="${esc(s[f.key] ?? '')}" /></div>`).join('');
+          // treadmill: distance + steps under the row, live as minutes / speed are typed
           return `
           <div class="set-row ${s.done ? 'done' : ''} ${isActive ? 'active' : ''}" data-ex="${exId}" data-si="${si}" style="${cols}">
             <button class="set-n" data-select="${exId}" data-si="${si}" aria-label="Set ${si + 1}">${s.done ? icons.check : (si + 1)}</button>
             ${inputs}
-          </div>`;
+          </div>${treadmill ? `<div class="tm-est" data-est="${exId}" data-si="${si}">${fmtTreadmill(treadmillEstimate(s.minutes, s.speed))}</div>` : ''}`;
         }).join('');
         // machine swap chips (StairMaster busy -> do Incline Walk instead, etc.)
         const swap = Object.entries(DB.CARDIO_KINDS).map(([k, v]) =>
@@ -954,6 +956,8 @@ function screenRun(planId) {
         const s = active.entries[row.dataset.ex].sets[+row.dataset.si];
         s[inp.dataset.f] = inp.value;
         persist();
+        const est = app.querySelector(`.tm-est[data-est="${row.dataset.ex}"][data-si="${row.dataset.si}"]`);
+        if (est) est.textContent = fmtTreadmill(treadmillEstimate(s.minutes, s.speed));
       });
       // focusing a set makes it the active one (what the Log button saves)
       inp.addEventListener('focus', () => {

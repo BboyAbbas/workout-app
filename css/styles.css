@@ -256,6 +256,9 @@ select.input { appearance: none; -webkit-appearance: none; background-image: non
 }
 .set-row .set-n svg { width: 20px; height: 20px; }
 .set-row .input { min-height: 48px; text-align: center; padding: 8px 4px; }
+/* treadmill: "1.00 mi · ≈2,270 steps" under the set's inputs */
+.tm-est { margin: -2px 0 10px 48px; font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tm-est:empty { display: none; }
 .set-row.done .set-n { color: var(--accent); }
 .set-row.done .input { border-color: var(--accent); opacity: 0.75; }
 
