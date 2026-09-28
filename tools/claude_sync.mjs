@@ -5,6 +5,9 @@
    Usage:
      node tools/claude_sync.mjs get                 # print the current doc
      node tools/claude_sync.mjs get > data.json      # save it for analysis
+     node tools/claude_sync.mjs days 30              # training by day: workouts with the planks /
+                                                     # intervals done during them, plus solo sessions
+     node tools/claude_sync.mjs days 30 --json       # the same, structured
      node tools/claude_sync.mjs put data.json        # upload {plans,sessions}, bumps updatedAt
 
    `put` expects a JSON file shaped { "plans": [...], "sessions": [...] }
@@ -36,6 +39,13 @@ if (cmd === 'backups') {          // list daily snapshot dates
     { method: 'POST', headers, body: JSON.stringify({ date }) });
   if (!r.ok) { console.error('restore failed:', r.status, await r.text()); process.exit(1); }
   console.log('restored; app pulls it on next open:', JSON.stringify(await r.json()));
+} else if (cmd === 'days') {       // training by day, planks/intervals nested under their workout: days [N] [--json]
+  const { dayLog, formatDayLog } = await import('./day_log.mjs');
+  const r = await fetch(url, { headers });
+  if (!r.ok) { console.error('GET failed:', r.status, await r.text()); process.exit(1); }
+  const n = Number(process.argv.find((a, i) => i > 2 && /^\d+$/.test(a))) || null;
+  const days = dayLog((await r.json()).data, { days: n });
+  console.log(process.argv.includes('--json') ? JSON.stringify(days, null, 2) : formatDayLog(days));
 } else if (cmd === 'get') {
   const r = await fetch(url, { headers });
   if (!r.ok) { console.error('GET failed:', r.status, await r.text()); process.exit(1); }
@@ -53,6 +63,6 @@ if (cmd === 'backups') {          // list daily snapshot dates
   if (!r.ok) { console.error('PUT failed:', r.status, await r.text()); process.exit(1); }
   console.log('uploaded; updatedAt =', payload.updatedAt, '(app will pull on next open)');
 } else {
-  console.error('usage: node tools/claude_sync.mjs get | put <file.json> | backups | backup <date> | restore <date>');
+  console.error('usage: node tools/claude_sync.mjs get | days [N] [--json] | put <file.json> | backups | backup <date> | restore <date>');
   process.exit(1);
 }

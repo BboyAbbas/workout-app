@@ -643,7 +643,8 @@ function startRun(planId) {
     };
   }
   const now = Date.now();
-  DB.setActive({ planId, planName: plan.name, startedAt: now, lastActivityAt: now, entries });
+  // the id is fixed at start so planks / intervals done meanwhile can point at it
+  DB.setActive({ id: DB.uid(), planId, planName: plan.name, startedAt: now, lastActivityAt: now, entries });
   scheduleWorkoutWatchdog(now + IDLE_NUDGE_MS, now + AUTO_FINISH_MS); // arm the idle nudge + auto-finish notice
   go('#/plan/' + planId + '/run');
 }
@@ -661,6 +662,7 @@ function setButtons(exId, count) {
 function screenRun(planId) {
   let active = DB.getActive();
   if (!active || active.planId !== planId) return go('#/plan/' + planId);
+  if (!active.id) { active.id = DB.uid(); DB.setActive(active); } // started by an older app version
   // Iterate the workout's OWN snapshot, not the live plan. Editing the plan
   // mid-workout (add/remove/rename an exercise) must never drop or blank the
   // sets already logged in this session.
@@ -1097,7 +1099,7 @@ function screenRun(planId) {
 
     const prs = DB.newPRsIn(entries); // compute BEFORE saving (needs prior history)
     DB.addSession({
-      id: DB.uid(),
+      id: active.id || DB.uid(),
       planId,
       planName: active.planName,
       startedAt: active.startedAt,
@@ -3282,7 +3284,7 @@ function finalizeStaleWorkout() {
     const endedAt = a.lastSetAt || a.lastActivityAt || a.startedAt;
     const setCount = entries.reduce((n, e) => n + e.sets.length, 0);
     DB.addSession({
-      id: DB.uid(), planId: a.planId, planName: a.planName,
+      id: a.id || DB.uid(), planId: a.planId, planName: a.planName,
       startedAt: a.startedAt, endedAt,
       durationSec: Math.max(0, Math.round((endedAt - a.startedAt) / 1000)),
       entries,

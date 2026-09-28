@@ -317,6 +317,7 @@ export function recordPlankSet(sessionId, sec, { at = Date.now(), targetSets = n
     s = { id: sessionId, t: at, sets: [], mode: selectedMode };
     if (okSets(Number(targetSets))) s.targetSets = Math.round(Number(targetSets));
     if (okRest(Number(restSec))) s.restSec = Math.round(Number(restSec));
+    Object.assign(s, activeWorkoutLink());
     p.sessions.push(s);
   }
   if (!Array.isArray(s.sets)) s.sets = [];
@@ -650,9 +651,10 @@ export function recordIntervalSession(session) {
   if (!session || !session.id) return null;
   const d = getIntervals();
   if (d.sessions.some((s) => s && s.id === session.id)) return null;
-  d.sessions.push(session);
+  const s = session.workoutId ? session : { ...session, ...activeWorkoutLink() };
+  d.sessions.push(s);
   saveIntervals(d);
-  return session;
+  return s;
 }
 export function setIntervalPace(id, pace) {
   const d = getIntervals();
@@ -1071,6 +1073,14 @@ export function newPRsIn(entries) {
 /* ---------- active (in-progress) workout ---------- */
 export function getActive() {
   return read(KEY_ACTIVE, null);
+}
+/** The open workout as {workoutId, workoutPlan}, or null when none is open.
+ *  Plank and interval sessions recorded meanwhile carry it, so a day reads as
+ *  one visit ("Push + planks") instead of loose records. workoutId is the id
+ *  the workout's session is saved under when it finishes. */
+export function activeWorkoutLink() {
+  const a = getActive();
+  return a && a.id ? { workoutId: a.id, workoutPlan: a.planName || null } : null;
 }
 export function setActive(active) {
   if (active) write(KEY_ACTIVE, active);

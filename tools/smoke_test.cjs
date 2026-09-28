@@ -1574,6 +1574,7 @@ function check(cond, msg) {
   check(page.url().endsWith(runHash), 'Save lands back on the live workout');
   const fin = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_intervals_v1')).sessions.find((s) => s.after));
   check(!!fin && fin.after.length > 0, `the session remembers the workout it followed (${fin && fin.after})`);
+  check(!!fin && !!fin.workoutId && fin.workoutPlan === fin.after, `and links to that workout by id (${fin && fin.workoutId})`);
 
   console.log('  · a workout discarded meanwhile sends Save home');
   await page.locator('#iv-finisher').click();
@@ -1588,6 +1589,39 @@ function check(cond, msg) {
   await page.locator('#iv-save').click();
   await page.waitForSelector('#iv-card');
   check(true, 'Save with no live workout goes home');
+
+  console.log('\n[7u] A plank done in the middle of a workout points at that workout');
+  await page.evaluate(() => { localStorage.removeItem('wt_planks_v1'); localStorage.removeItem('wt_plank_active_v1'); localStorage.removeItem('wt_active_v1'); });
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card [data-run]');
+  await page.locator('.plan-card [data-run]').first().click();
+  await page.waitForSelector('#logbtn');
+  const live = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_active_v1')));
+  check(!!live.id, 'a started workout has an id from the start');
+  await page.goto(BASE + '/#/');
+  await page.locator('#plank-card').click();
+  await page.waitForSelector('#plank-start');
+  await page.locator('[data-sets="1"]').click();
+  await page.locator('#plank-start').click();
+  await page.waitForSelector('.plank-stage-hold');
+  await page.waitForTimeout(1300);
+  await page.locator('#plank-stop').click();
+  await page.waitForSelector('.plank-summary');
+  const midPlank = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_planks_v1')).sessions[0]);
+  check(midPlank.workoutId === live.id && midPlank.workoutPlan === live.planName,
+    `the plank carries the open workout's id and plan (${midPlank.workoutPlan})`);
+  await page.goto(BASE + '/#/plan/' + live.planId + '/run');
+  await page.waitForSelector('#logbtn');
+  const firstRow = page.locator('.run-ex').first().locator('.set-row[data-si="0"]');
+  for (const inp of await firstRow.locator('input').all()) await inp.fill('8');
+  await page.locator('#logbtn').click();
+  await page.waitForSelector('.run-ex .set-row.done');
+  await page.locator('#finish').click();
+  await page.waitForSelector('.hist-row', { timeout: 5000 });
+  const savedIds = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_sessions_v1')).map((s) => s.id));
+  check(savedIds.includes(live.id), 'the finished workout is saved under that same id, so the link resolves');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('.plan-card');
 
   console.log('\n[8] No console errors');
   check(consoleErrors.length === 0, 'no console/page errors' + (consoleErrors.length ? ' -> ' + consoleErrors.join(' | ') : ''));

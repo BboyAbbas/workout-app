@@ -81,6 +81,20 @@ Worker + KV, last-write-wins by `updatedAt`. Work done offline is merged back in
 rather than overwritten, and fields written by a newer version of the app are
 preserved verbatim instead of being stripped.
 
+**How a gym visit reads in the data.** A workout gets its `id` the moment it
+starts; its session is saved under that same id. A plank or interval session
+recorded while a workout is open carries `workoutId` + `workoutPlan`, so "Push
+with planks and a 4×4" is one linked unit. No `workoutId` = done on its own
+(a plank-only evening, an interval-only day). A cardio-only visit is a normal
+workout session of the Cardio plan. Planks done during workouts before
+2026-09-28 were linked afterwards by time (plank inside the workout's
+start–end).
+
+**Reading history / insights:** `node tools/claude_sync.mjs days 30` prints the
+live data day by day — each workout with its exercises and the planks /
+intervals done during it, then solo sessions (`--json` for the structured form,
+built by `tools/day_log.mjs`).
+
 ## Run locally
 
 ```bash
@@ -121,7 +135,7 @@ GitHub Pages redeploys automatically.
 Unit tests (no browser, no server):
 
 ```bash
-npm test        # rec_test + ui_test + analytics_test + plank_test + interval_test + body_test
+npm test        # rec_test + ui_test + analytics_test + plank_test + interval_test + body_test + day_log_test
 ```
 
 End-to-end, drives a real Chromium through the app:
