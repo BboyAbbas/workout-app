@@ -12,7 +12,7 @@ const KEY_PLANS = 'wt_plans_v1';
 const KEY_SESSIONS = 'wt_sessions_v1';
 const KEY_ACTIVE = 'wt_active_v1'; // in-progress workout, survives refresh
 const KEY_GOAL = 'wt_goal_v1'; // weight-loss goal {targetKg, startKg, startDate, endDate}
-const KEY_WEIGHTS = 'wt_weights_v1'; // body-weight log {entries:[{id,t,kg,note}], targetKg, heightCm}
+const KEY_WEIGHTS = 'wt_weights_v1'; // body log {entries:[{id,t,kg,note}], targetKg, heightCm, waist:{entries:[{id,t,cm,note}], targetCm}}
 const KEY_PLANKS = 'wt_planks_v1'; // plank trainer {sessions:[{id,t,mode,sets:[{sec,at,side?}]}], targetSets, restSec, mode}
 const KEY_PLANK_ACTIVE = 'wt_plank_active_v1'; // in-progress plank run, survives refresh (device-local, never synced)
 const KEY_INTERVALS = 'wt_intervals_v1'; // interval trainer {sessions:[...], prefs:{preset,machine,muted,cfgs}}
@@ -169,19 +169,82 @@ export function setWeightTarget(kg) {
   w.targetKg = kg;
   saveWeights(w);
 }
-/** Linearly interpolated weight at time t (null with no data). */
-export function weightAt(entries, t) {
+/** Linearly interpolated value of `key` at time t (null with no data). */
+export function weightAt(entries, t, key = 'kg') {
   if (!entries.length) return null;
-  if (t <= entries[0].t) return entries[0].kg;
+  if (t <= entries[0].t) return entries[0][key];
   const last = entries[entries.length - 1];
-  if (t >= last.t) return last.kg;
+  if (t >= last.t) return last[key];
   for (let i = 1; i < entries.length; i++) {
     if (entries[i].t >= t) {
       const a = entries[i - 1], b = entries[i];
-      return a.kg + (b.kg - a.kg) * ((t - a.t) / (b.t - a.t || 1));
+      return a[key] + (b[key] - a[key]) * ((t - a.t) / (b.t - a.t || 1));
     }
   }
-  return last.kg;
+  return last[key];
+}
+export function setHeight(cm) {
+  const w = getWeights();
+  w.heightCm = cm;
+  saveWeights(w);
+}
+
+/* ---------- waist tracking (weight screen, Waist tab) ----------
+   Rides inside the weights doc next to heightCm, so it syncs with it and an
+   older app version keeps it untouched. The goal is a ceiling: reached only
+   when the waist is UNDER targetCm. */
+export function getWaist() {
+  const w = getWeights().waist;
+  return {
+    entries: w && Array.isArray(w.entries) ? w.entries : [],
+    targetCm: w && Number.isFinite(w.targetCm) ? w.targetCm : null,
+  };
+}
+function saveWaist(waist) {
+  const w = getWeights();
+  waist.entries.sort((a, b) => a.t - b.t);
+  w.waist = { ...w.waist, ...waist };
+  saveWeights(w);
+}
+export function addWaist(cm, { t = Date.now(), note = '' } = {}) {
+  const waist = getWaist();
+  const entry = { id: uid(), t, cm, note };
+  waist.entries.push(entry);
+  saveWaist(waist);
+  return entry;
+}
+export function updateWaist(id, patch) {
+  const waist = getWaist();
+  const e = waist.entries.find((x) => x.id === id);
+  if (!e) return;
+  Object.assign(e, patch);
+  saveWaist(waist);
+}
+export function deleteWaist(id) {
+  const waist = getWaist();
+  waist.entries = waist.entries.filter((x) => x.id !== id);
+  saveWaist(waist);
+}
+export function setWaistTarget(cm) {
+  const waist = getWaist();
+  waist.targetCm = cm;
+  saveWaist(waist);
+}
+/** Waist ÷ height (null without both). */
+export function waistToHeight(cm, heightCm) {
+  return cm > 0 && heightCm > 0 ? cm / heightCm : null;
+}
+/** Union a local weights doc's unpushed waist entries into a pulled one.
+ *  Returns how many were added (the pulled doc is changed in place). */
+export function mergeWaistInto(remoteWeights, localWeights) {
+  const mine = localWeights && localWeights.waist && Array.isArray(localWeights.waist.entries) ? localWeights.waist.entries : [];
+  if (!remoteWeights || !mine.length) return 0;
+  const theirs = remoteWeights.waist && Array.isArray(remoteWeights.waist.entries) ? remoteWeights.waist.entries : null;
+  if (!theirs) { remoteWeights.waist = { ...localWeights.waist }; return mine.length; }
+  const have = new Set(theirs.map((e) => e && e.id));
+  const miss = mine.filter((e) => e && e.id && !have.has(e.id));
+  if (miss.length) remoteWeights.waist.entries = theirs.concat(miss).sort((a, b) => a.t - b.t);
+  return miss.length;
 }
 
 /* ---------- plank trainer ----------

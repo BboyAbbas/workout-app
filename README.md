@@ -23,6 +23,12 @@ holds one shared JSON copy so the same data follows you across devices.
 - **Interval Trainer** — timed intervals (Norwegian 4×4, sprints, Tabata, 10×1, custom) under "Trainers", or as a finisher from a live workout (see below).
 - **Weight** — weigh-in log, chart with a target line, and progress against a
   goal with a countdown.
+- **Waist** — a second tab on the weight screen: waist log in cm, chart with the
+  goal line, and a "goal under X cm" that counts as reached only below X. Shows
+  waist ÷ height against the NICE bands (under 0.50 healthy, 0.50–0.59 increased
+  risk, 0.60+ high risk); height is stored once in the weights doc (`heightCm`).
+  Waist entries live in the same doc (`weights.waist`) and merge offline logs on
+  sync like weigh-ins. Home shows a waist card with cm to go.
 - **History & insights** — every workout with per-set detail, records, stalls,
   muscle split, and a consistency heatmap.
 - Works fully offline (service worker app shell).
@@ -112,7 +118,7 @@ GitHub Pages redeploys automatically.
 Unit tests (no browser, no server):
 
 ```bash
-npm test        # rec_test + ui_test + analytics_test + plank_test + interval_test
+npm test        # rec_test + ui_test + analytics_test + plank_test + interval_test + body_test
 ```
 
 End-to-end, drives a real Chromium through the app:

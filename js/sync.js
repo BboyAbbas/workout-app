@@ -79,6 +79,9 @@ export async function pull() {
             data.weights = mineW; mergedIn += mineW.entries.length;
           }
         }
+        // waist measurements ride inside the weights doc — same union
+        if (!data.weights && mineW && mineW.waist) { data.weights = mineW; mergedIn++; }
+        else mergedIn += DB.mergeWaistInto(data.weights, mineW);
         // same union for plank holds recorded offline. Merging happens per SET,
         // not just per session, so a hold added here and a hold added on another
         // device inside the same plank run both survive.

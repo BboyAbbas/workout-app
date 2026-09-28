@@ -285,6 +285,41 @@ function screenHome() {
     </div>`;
   }
 
+  // waist card: latest cm, the under-this goal, cm to go, waist ÷ height — taps to the Waist tab
+  const waist = DB.getWaist();
+  const wz = waist.entries[waist.entries.length - 1];
+  let waistBar;
+  if (wz) {
+    const tgt = waist.targetCm;
+    const ratio = DB.waistToHeight(wz.cm, wts.heightCm);
+    const first = waist.entries[0].cm;
+    const reached = tgt != null && wz.cm < tgt;
+    const pct = tgt == null ? 0 : first > tgt ? Math.max(0, Math.min(100, ((first - wz.cm) / (first - tgt)) * 100)) : reached ? 100 : 0;
+    const left = tgt == null ? 'tap 🎯 to set a goal'
+      : reached ? 'goal reached 💪' : `${fmtKg(Math.max(0.1, wz.cm - tgt))} cm to go`;
+    waistBar = `
+    <div class="card tappable" id="waist-bar" data-nav="#/waist">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <div style="font-size:22px;font-weight:700">${fmtKg(wz.cm)}<span style="font-size:14px;color:var(--muted);font-weight:600"> cm waist</span></div>
+        ${tgt != null ? `<div style="font-weight:650">🎯 under ${esc(tgt)} cm</div>` : ''}
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:10px;margin:2px 0 ${tgt != null ? 9 : 0}px;font-size:13px;color:var(--muted)">
+        <span>${left}</span>
+        <span style="white-space:nowrap">${ratio ? `waist ÷ height ${fmtRatio(ratio)}` : esc(fmtAgo(wz.t))}</span>
+      </div>
+      ${tgt != null ? `<div class="mbar-track" style="height:7px"><div class="mbar-fill" style="width:${pct}%"></div></div>` : ''}
+    </div>`;
+  } else {
+    waistBar = `
+    <div class="card tappable" id="waist-bar" data-nav="#/waist" style="display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <p class="name" style="margin:0 0 2px;font-weight:650">📏 Waist</p>
+        <p class="desc" style="margin:0;color:var(--muted)">Track your waist and waist ÷ height</p>
+      </div>
+      <div style="color:var(--muted)">${icons.chart}</div>
+    </div>`;
+  }
+
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -296,6 +331,7 @@ function screenHome() {
     <main class="screen">
       ${resumeBar}
       ${weightBar}
+      ${waistBar}
       ${body}
       ${consistencyBlock(DB.getSessions(), DB.getIntervalSessions())}
     </main>
@@ -1503,11 +1539,13 @@ function screenExercise(name) {
 }
 
 /* ============================================================
-   SCREEN: Weight — body-weight log, chart, performance
+   SCREEN: Body — Weight and Waist tabs: log, chart, performance.
+   Both tabs run on one screen; each metric is a config in BODY.
    ============================================================ */
 let weightRange = 'all';      // selected chart range, survives re-renders
 let weightEditing = null;     // null | 'new' | entry id being edited
 let weightSel = null;         // entry id highlighted on the chart (tap a node)
+let bodyMetric = null;        // tab the editor/selection state belongs to
 
 const WEIGHT_RANGES = [
   { key: '30', label: '30 Days', days: 30 },
@@ -1516,6 +1554,35 @@ const WEIGHT_RANGES = [
   { key: 'year', label: 'Year', days: 365 },
   { key: 'all', label: 'All', days: null },
 ];
+
+/* Entries reach the screen as {id, t, v, note}; each config maps its own field onto v. */
+const BODY = {
+  weight: {
+    title: 'Weight', unit: 'kg', noun: 'weigh-in', min: 20, max: 300,
+    load() { const w = DB.getWeights(); return { entries: w.entries.map((e) => ({ ...e, v: e.kg })), target: w.targetKg }; },
+    add: (v, o) => DB.addWeight(v, o),
+    update: (id, v, patch) => DB.updateWeight(id, { kg: v, ...patch }),
+    del: (id) => DB.deleteWeight(id),
+    setTarget: (v) => DB.setWeightTarget(v),
+    targetAsk: 'Target weight (kg) — leave empty to remove',
+    targetSub: (t) => `target ${t} kg`,
+    bad: 'Enter a weight in kg', saved: 'Weight logged', delAsk: 'Delete this weigh-in?',
+    emptyTitle: 'No weigh-ins yet', emptyText: 'Log your weight and the chart builds itself.',
+  },
+  waist: {
+    title: 'Waist', unit: 'cm', noun: 'measurement', min: 40, max: 200,
+    load() { const w = DB.getWaist(); return { entries: w.entries.map((e) => ({ ...e, v: e.cm })), target: w.targetCm }; },
+    add: (v, o) => DB.addWaist(v, o),
+    update: (id, v, patch) => DB.updateWaist(id, { cm: v, ...patch }),
+    del: (id) => DB.deleteWaist(id),
+    setTarget: (v) => DB.setWaistTarget(v),
+    targetAsk: 'Waist goal (cm) — reached when you are UNDER it. Leave empty to remove',
+    targetSub: (t) => `goal under ${t} cm`,
+    bad: 'Enter your waist in cm', saved: 'Waist logged', delAsk: 'Delete this measurement?',
+    emptyTitle: 'No measurements yet',
+    emptyText: 'Measure halfway between your lowest rib and your hip bone, after a normal breath out.',
+  },
+};
 
 function fmtKg(v) { return String(Math.round(v * 10) / 10); }
 function fmtDelta(v) {
@@ -1530,18 +1597,27 @@ function toLocalInput(t) {
   const d = new Date(t), p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+/* Waist ÷ height, cut (never rounded) to 2 decimals so the number shown always
+   sits in the same NICE band as the real ratio: 0.4994 shows 0.49, not 0.50. */
+function fmtRatio(r) { return (Math.floor(r * 100 + 1e-9) / 100).toFixed(2); }
+function whtrBand(r) { // NICE NG246 central-adiposity bands
+  const d = Math.floor(r * 100 + 1e-9) / 100;
+  if (d >= 0.6) return { cls: 'z-high', label: 'High risk' };
+  if (d >= 0.5) return { cls: 'z-mid', label: 'Increased risk' };
+  return { cls: 'z-ok', label: d >= 0.4 ? 'Healthy' : 'Under 0.40' };
+}
 
 /* Line chart with y-gridlines, x time labels and a dashed target line.
-   Tapping the chart selects the nearest weigh-in (selectedId) and shows an
-   aktiBMI-style callout with date, weight, delta and note. */
-function weightChart(entries, targetKg, selectedId) {
-  if (entries.length < 2) return `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">Log two weigh-ins and the chart appears.</p>`;
+   Tapping the chart selects the nearest entry (selectedId) and shows an
+   aktiBMI-style callout with date and value. */
+function bodyChart(entries, target, selectedId, unit, noun) {
+  if (entries.length < 2) return `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">Log two ${noun}s and the chart appears.</p>`;
   const w = 340, h = 190, padL = 10, padR = 34, padT = 12, padB = 22;
   const t0 = entries[0].t, t1 = entries[entries.length - 1].t;
   const span = Math.max(1, t1 - t0);
-  let min = Math.min(...entries.map((e) => e.kg));
-  let max = Math.max(...entries.map((e) => e.kg));
-  if (targetKg != null) { min = Math.min(min, targetKg); max = Math.max(max, targetKg); }
+  let min = Math.min(...entries.map((e) => e.v));
+  let max = Math.max(...entries.map((e) => e.v));
+  if (target != null) { min = Math.min(min, target); max = Math.max(max, target); }
   min = Math.floor(min - 0.5); max = Math.ceil(max + 0.5);
   const yspan = max - min || 1;
   const X = (t) => padL + ((t - t0) / span) * (w - padL - padR);
@@ -1550,7 +1626,7 @@ function weightChart(entries, targetKg, selectedId) {
   const step = Math.ceil(yspan / 6);
   let grid = '', ylabels = '';
   for (let v = min; v <= max; v += step) {
-    if (targetKg != null && Math.abs(v - targetKg) < step / 2) continue; // target label owns that row
+    if (target != null && Math.abs(v - target) < step / 2) continue; // target label owns that row
     grid += `<line x1="${padL}" y1="${Y(v)}" x2="${w - padR}" y2="${Y(v)}" stroke="var(--border)" stroke-width="1"/>`;
     ylabels += `<text x="${w - padR + 5}" y="${Y(v) + 3.5}" font-size="10" fill="var(--muted)">${v}</text>`;
   }
@@ -1566,26 +1642,26 @@ function weightChart(entries, targetKg, selectedId) {
     const t = t0 + (span * i) / 3;
     xlabels += `<text x="${X(t).toFixed(1)}" y="${h - 6}" font-size="10" fill="var(--muted)" text-anchor="${i === 0 ? 'start' : i === 3 ? 'end' : 'middle'}">${fmtX(t)}</text>`;
   }
-  const pts = entries.map((e) => `${X(e.t).toFixed(1)},${Y(e.kg).toFixed(1)}`);
+  const pts = entries.map((e) => `${X(e.t).toFixed(1)},${Y(e.v).toFixed(1)}`);
   // nodes on every range: thin dense ranges so dots stay readable, but a tap
   // still hits ANY entry (nearest-by-time lookup in the click handler)
   const thin = Math.max(1, Math.ceil(entries.length / 120));
   const dots = entries
     .filter((e, i) => i % thin === 0 || i === entries.length - 1 || e.id === selectedId)
-    .map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.kg).toFixed(1)}" r="${thin > 1 ? 2 : 2.6}" fill="var(--accent)"/>`).join('');
+    .map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.v).toFixed(1)}" r="${thin > 1 ? 2 : 2.6}" fill="var(--accent)"/>`).join('');
   const [lx, ly] = pts[pts.length - 1].split(',');
-  const target = targetKg != null ? `
-      <line x1="${padL}" y1="${Y(targetKg)}" x2="${w - padR}" y2="${Y(targetKg)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
-      <text x="${w - padR + 5}" y="${Y(targetKg) + 3.5}" font-size="10" fill="var(--accent)">${targetKg}</text>` : '';
+  const targetLine = target != null ? `
+      <line x1="${padL}" y1="${Y(target)}" x2="${w - padR}" y2="${Y(target)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
+      <text x="${w - padR + 5}" y="${Y(target) + 3.5}" font-size="10" fill="var(--accent)">${target}</text>` : '';
 
-  // callout for the tapped node — aktiBMI-style: date + weight, nothing else
+  // callout for the tapped node — aktiBMI-style: date + value, nothing else
   let callout = '';
   const sel = selectedId ? entries.find((e) => e.id === selectedId) : null;
   if (sel) {
-    const cx = X(sel.t), cy = Y(sel.kg);
+    const cx = X(sel.t), cy = Y(sel.v);
     const dateTxt = new Date(sel.t).toLocaleDateString(undefined, { day: 'numeric', month: 'numeric', year: '2-digit' });
-    const kgTxt = `${fmtKg(sel.kg)}kg`;
-    const bw = Math.max(dateTxt.length * 5.4, kgTxt.length * 7.4) + 18;
+    const valTxt = `${fmtKg(sel.v)}${unit}`;
+    const bw = Math.max(dateTxt.length * 5.4, valTxt.length * 7.4) + 18;
     const bh = 37;
     const bx = Math.min(Math.max(cx - bw / 2, 2), w - padR - bw + 26);
     const above = cy > bh + 16;
@@ -1595,13 +1671,13 @@ function weightChart(entries, targetKg, selectedId) {
         <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
         <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(0)}" height="${bh}" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
         <text x="${(bx + bw / 2).toFixed(1)}" y="${by + 14}" font-size="9.5" fill="var(--muted)" text-anchor="middle">${esc(dateTxt)}</text>
-        <text x="${(bx + bw / 2).toFixed(1)}" y="${by + 29}" font-size="12.5" font-weight="700" fill="var(--accent)" text-anchor="middle">${esc(kgTxt)}</text>
+        <text x="${(bx + bw / 2).toFixed(1)}" y="${by + 29}" font-size="12.5" font-weight="700" fill="var(--accent)" text-anchor="middle">${esc(valTxt)}</text>
       </g>`;
   }
   return `
-    <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="weight chart"
+    <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(noun)} chart"
          data-t0="${t0}" data-span="${span}" data-w="${w}" data-padl="${padL}" data-padr="${padR}">
-      ${grid}${ylabels}${xlabels}${target}
+      ${grid}${ylabels}${xlabels}${targetLine}
       <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
       ${dots}
       <circle cx="${lx}" cy="${ly}" r="3.5" fill="var(--accent)"/>
@@ -1609,34 +1685,68 @@ function weightChart(entries, targetKg, selectedId) {
     </svg>`;
 }
 
-function screenWeight() {
-  const wts = DB.getWeights();
-  const all = wts.entries;
+/* Waist ÷ height: the number, its NICE band on a 0.40–0.70 bar, and the
+   distance to the waist goal. Height is set once; it only asks when missing. */
+function whtrCard(latestCm, targetCm) {
+  const heightCm = DB.getWeights().heightCm;
+  if (!(heightCm > 0)) return `
+      <div class="section-label">Waist ÷ height</div>
+      <div class="card"><button class="btn btn-block" id="whtr-height">Add your height to see waist ÷ height</button></div>`;
+  const r = DB.waistToHeight(latestCm, heightCm);
+  const band = whtrBand(r);
+  const pos = Math.max(0, Math.min(1, (r - 0.4) / 0.3)) * 100;
+  let goal = '';
+  if (targetCm != null) {
+    goal = latestCm < targetCm
+      ? `Goal under ${esc(targetCm)} cm reached 💪`
+      : `${fmtKg(Math.max(0.1, latestCm - targetCm))} cm to go · goal under ${esc(targetCm)} cm`;
+  }
+  return `
+      <div class="section-label">Waist ÷ height</div>
+      <div class="card" id="whtr-card">
+        <div class="whtr-top">
+          <div class="stat-v">${fmtRatio(r)}</div>
+          <div class="whtr-zone ${band.cls}">${band.label}</div>
+        </div>
+        <div class="whtr-bar"><i class="z-ok"></i><i class="z-mid"></i><i class="z-high"></i><b style="left:${pos.toFixed(1)}%"></b></div>
+        <div class="whtr-scale"><span style="left:0">0.40</span><span style="left:33.33%">0.50</span><span style="left:66.67%">0.60</span><span style="left:100%">0.70</span></div>
+        ${goal ? `<p class="whtr-goal">${goal}</p>` : ''}
+        <p class="desc whtr-note">Height ${fmtKg(heightCm)} cm · half your height is ${fmtKg(heightCm / 2)} cm. NICE: under 0.50 healthy, 0.50–0.59 increased risk, 0.60+ high risk.</p>
+      </div>`;
+}
+
+function screenBody(metric) {
+  const cfg = BODY[metric] || BODY.weight;
+  if (metric !== bodyMetric) { weightEditing = null; weightSel = null; bodyMetric = metric; }
+  const { unit, noun } = cfg;
+  const doc = cfg.load();
+  const all = doc.entries;
+  const target = doc.target;
   const now = Date.now();
   const range = WEIGHT_RANGES.find((r) => r.key === weightRange) || WEIGHT_RANGES[4];
   const inRange = range.days ? all.filter((e) => e.t >= now - range.days * 86400000) : all;
   const latest = all.length ? all[all.length - 1] : null;
 
-  // performance vs the interpolated weight at each cutoff
+  // performance vs the interpolated value at each cutoff
   const perf = latest ? [
     { label: '1 Week', days: 7 },
     { label: '4 Weeks', days: 28 },
     { label: '3 Months', days: 90 },
     { label: 'All', days: null },
   ].map((p) => {
-    const base = p.days ? DB.weightAt(all, now - p.days * 86400000) : all[0].kg;
-    return { ...p, delta: base == null ? 0 : latest.kg - base };
+    const base = p.days ? DB.weightAt(all, now - p.days * 86400000, 'v') : all[0].v;
+    return { ...p, delta: base == null ? 0 : latest.v - base };
   }) : [];
   const maxAbs = Math.max(0.1, ...perf.map((p) => Math.abs(p.delta)));
 
   const start = inRange.length ? inRange[0] : null;
-  const dev = start && latest ? latest.kg - start.kg : 0;
+  const dev = start && latest ? latest.v - start.v : 0;
 
   const editing = weightEditing && weightEditing !== 'new' ? all.find((e) => e.id === weightEditing) : null;
   const editorCard = weightEditing ? `
       <div class="card" id="wt-editor">
         <div class="wt-kg-wrap">
-          <input class="input wt-kg-input" id="wt-kg" type="number" step="0.1" min="20" max="300" inputmode="decimal" placeholder="0.0" value="${editing ? editing.kg : (latest ? latest.kg : '')}"><span class="u">kg</span>
+          <input class="input wt-kg-input" id="wt-kg" type="number" step="0.1" min="${cfg.min}" max="${cfg.max}" inputmode="decimal" placeholder="0.0" value="${editing ? editing.v : (latest ? latest.v : '')}"><span class="u">${unit}</span>
         </div>
         <div style="display:flex;gap:8px;align-items:flex-end">
           <div class="field" style="flex:1;margin-bottom:0"><label>Note</label>
@@ -1651,7 +1761,7 @@ function screenWeight() {
         </div>
       </div>` : '';
 
-  const withDelta = all.map((e, i) => ({ ...e, d: i ? e.kg - all[i - 1].kg : null }));
+  const withDelta = all.map((e, i) => ({ ...e, d: i ? e.v - all[i - 1].v : null }));
   const list = (range.days ? withDelta.filter((e) => e.t >= now - range.days * 86400000) : withDelta).reverse();
   const rows = list.map((e) => `
       <div class="wt-row tappable" data-wid="${e.id}">
@@ -1659,55 +1769,63 @@ function screenWeight() {
           <p class="date">${esc(fmtDate(e.t))}</p>
           <p class="summary">${esc(fmtTime(e.t))}${e.note ? ' · ' + esc(e.note) : ''}</p>
         </div>
-        <div class="wt-kg">${fmtKg(e.kg)}<span class="u">kg</span></div>
-        <div class="wt-delta ${e.d == null ? 'zero' : deltaClass(e.d)}">${e.d == null ? '' : fmtDelta(e.d) + ' kg'}</div>
+        <div class="wt-kg">${fmtKg(e.v)}<span class="u">${unit}</span></div>
+        <div class="wt-delta ${e.d == null ? 'zero' : deltaClass(e.d)}">${e.d == null ? '' : fmtDelta(e.d) + ' ' + unit}</div>
       </div>`).join('');
 
   mount(`
-    ${topbar('Weight', {
+    ${topbar(cfg.title, {
       back: '#/',
-      sub: all.length ? `${all.length} weigh-in${all.length === 1 ? '' : 's'}${wts.targetKg ? ` · target ${wts.targetKg} kg` : ''}` : '',
+      sub: all.length ? `${all.length} ${noun}${all.length === 1 ? '' : 's'}${target ? ` · ${cfg.targetSub(target)}` : ''}` : '',
       right: `<button class="icon-btn" id="wt-target-btn" aria-label="Set target">${icons.target}</button>`,
     })}
     <main class="screen">
+      <div class="body-tabs">${Object.keys(BODY).map((k) =>
+        `<button class="body-tab${k === metric ? ' on' : ''}" data-body="${k}" aria-pressed="${k === metric}">${BODY[k].title}</button>`).join('')}</div>
       ${editorCard}
       ${all.length ? `
       <div class="card">
         <div class="range-tabs">${WEIGHT_RANGES.map((r) =>
           `<button class="chip-tab${r.key === weightRange ? ' on' : ''}" data-range="${r.key}">${r.label}</button>`).join('')}</div>
-        ${weightChart(inRange, wts.targetKg, weightSel)}
+        ${bodyChart(inRange, target, weightSel, unit, noun)}
         <div class="wt-stats">
-          <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.kg) : '–'}<span class="u">kg</span></div></div>
-          <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.kg) : '–'}<span class="u">kg</span></div></div>
-          <div><div class="stat-l">Development</div><div class="stat-v" style="color:${Math.round(dev * 10) === 0 ? 'var(--muted)' : dev > 0 ? 'var(--danger)' : 'var(--accent)'}">${fmtDelta(dev)}<span class="u">kg</span></div></div>
+          <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.v) : '–'}<span class="u">${unit}</span></div></div>
+          <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.v) : '–'}<span class="u">${unit}</span></div></div>
+          <div><div class="stat-l">Development</div><div class="stat-v" style="color:${Math.round(dev * 10) === 0 ? 'var(--muted)' : dev > 0 ? 'var(--danger)' : 'var(--accent)'}">${fmtDelta(dev)}<span class="u">${unit}</span></div></div>
         </div>
       </div>
+      ${metric === 'waist' ? whtrCard(latest.v, target) : ''}
 
       <div class="section-label">Performance</div>
       <div class="card">
         ${perf.map((p) => `
         <div class="mbar">
-          <div class="mbar-top"><span>${p.label}</span><span class="wt-delta ${deltaClass(p.delta)}">${fmtDelta(p.delta)} kg</span></div>
+          <div class="mbar-top"><span>${p.label}</span><span class="wt-delta ${deltaClass(p.delta)}">${fmtDelta(p.delta)} ${unit}</span></div>
           <div class="mbar-track"><div class="mbar-fill ${deltaClass(p.delta)}" style="width:${Math.max(3, (Math.abs(p.delta) / maxAbs) * 100)}%"></div></div>
         </div>`).join('')}
       </div>
 
-      <div class="section-label">Weight development</div>
+      <div class="section-label">${cfg.title} development</div>
       <div class="card wt-list">${rows}</div>
       <div class="spacer"></div>
       ` : `
       <div class="empty"><div class="big">${icons.chart}</div>
-        <p style="font-size:18px;color:var(--text);font-weight:600">No weigh-ins yet</p>
-        <p>Log your weight and the chart builds itself.</p>
+        <p style="font-size:18px;color:var(--text);font-weight:600">${cfg.emptyTitle}</p>
+        <p>${cfg.emptyText}</p>
       </div>`}
     </main>
     <button class="fab" id="wt-add">${icons.plus}<span>Log</span></button>
   `);
 
-  qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; weightSel = null; screenWeight(); }));
+  const again = () => screenBody(metric);
+  // switching tabs replaces the history entry, so Back still goes home
+  qsa('[data-body]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.body !== metric) location.replace('#/' + b.dataset.body);
+  }));
+  qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; weightSel = null; again(); }));
   const chartEl = qs('.wchart');
   if (chartEl) chartEl.addEventListener('click', (ev) => {
-    // map the tap x back to a time, pick the nearest weigh-in, toggle its callout
+    // map the tap x back to a time, pick the nearest entry, toggle its callout
     const rect = chartEl.getBoundingClientRect();
     const vx = ((ev.clientX - rect.left) / rect.width) * (+chartEl.dataset.w);
     const padL = +chartEl.dataset.padl, padR = +chartEl.dataset.padr;
@@ -1716,40 +1834,48 @@ function screenWeight() {
     for (const e of inRange) { const d = Math.abs(e.t - t); if (d < bd) { bd = d; best = e; } }
     if (!best) return;
     weightSel = weightSel === best.id ? null : best.id;
-    screenWeight();
+    again();
   });
-  qs('#wt-add').addEventListener('click', () => { weightEditing = 'new'; screenWeight(); });
-  qsa('[data-wid]').forEach((r) => r.addEventListener('click', () => { weightEditing = r.dataset.wid; screenWeight(); window.scrollTo(0, 0); }));
+  qs('#wt-add').addEventListener('click', () => { weightEditing = 'new'; again(); });
+  qsa('[data-wid]').forEach((r) => r.addEventListener('click', () => { weightEditing = r.dataset.wid; again(); window.scrollTo(0, 0); }));
   qs('#wt-target-btn').addEventListener('click', () => {
-    const v = prompt('Target weight (kg) — leave empty to remove', wts.targetKg ?? '');
+    const v = prompt(cfg.targetAsk, target ?? '');
     if (v === null) return;
-    const kg = parseFloat(v);
-    DB.setWeightTarget(Number.isFinite(kg) && kg > 0 ? Math.round(kg * 10) / 10 : null);
-    screenWeight();
+    const n = parseFloat(v);
+    cfg.setTarget(Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : null);
+    again();
+  });
+  const hBtn = qs('#whtr-height');
+  if (hBtn) hBtn.addEventListener('click', () => {
+    const cm = parseFloat(prompt('Your height (cm)', '') || '');
+    if (!Number.isFinite(cm) || cm < 100 || cm > 250) { toast('Enter your height in cm'); return; }
+    DB.setHeight(Math.round(cm * 10) / 10);
+    again();
   });
   if (weightEditing) {
-    const kgEl = qs('#wt-kg');
-    if (kgEl && !editing) { kgEl.focus(); kgEl.select(); }
+    const valEl = qs('#wt-kg');
+    if (valEl && !editing) { valEl.focus(); valEl.select(); }
     qs('#wt-save').addEventListener('click', () => {
-      const kg = parseFloat(qs('#wt-kg').value);
-      if (!Number.isFinite(kg) || kg < 20 || kg > 300) { toast('Enter a weight in kg'); return; }
+      const v = parseFloat(qs('#wt-kg').value);
+      if (!Number.isFinite(v) || v < cfg.min || v > cfg.max) { toast(cfg.bad); return; }
       const when = new Date(qs('#wt-when').value);
       const t = Number.isFinite(when.getTime()) ? when.getTime() : Date.now();
       const note = qs('#wt-note').value.trim();
-      if (editing) DB.updateWeight(editing.id, { kg: Math.round(kg * 10) / 10, t, note });
-      else DB.addWeight(Math.round(kg * 10) / 10, { t, note });
+      const val = Math.round(v * 10) / 10;
+      if (editing) cfg.update(editing.id, val, { t, note });
+      else cfg.add(val, { t, note });
       weightEditing = null;
-      toast('Weight logged');
-      screenWeight();
+      toast(cfg.saved);
+      again();
     });
     const del = qs('#wt-del');
     if (del) del.addEventListener('click', () => {
-      if (!confirm('Delete this weigh-in?')) return;
-      DB.deleteWeight(editing.id);
+      if (!confirm(cfg.delAsk)) return;
+      cfg.del(editing.id);
       weightEditing = null;
-      screenWeight();
+      again();
     });
-    qs('#wt-cancel').addEventListener('click', () => { weightEditing = null; screenWeight(); });
+    qs('#wt-cancel').addEventListener('click', () => { weightEditing = null; again(); });
   }
 }
 
@@ -3046,7 +3172,7 @@ function router() {
   if (hash === '#/' || hash === '' || hash === '#') return screenHome();
   if (parts[0] === 'history') return screenHistory(null);
   if (parts[0] === 'insights') return screenInsights();
-  if (parts[0] === 'weight') return screenWeight();
+  if (parts[0] === 'weight' || parts[0] === 'waist') return screenBody(parts[0]);
   if (parts[0] === 'plank') return screenPlank();
   if (parts[0] === 'intervals') return screenIntervals(parts[1] === 'finisher');
   if (parts[0] === 'session') return screenSession(parts[1]);

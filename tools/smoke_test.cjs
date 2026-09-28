@@ -875,6 +875,61 @@ function check(cond, msg) {
   check((await page.locator('.cal .cal-cell').count()) >= 7, 'consistency heatmap renders at the bottom of home');
   check((await page.locator('#weight-bar').getAttribute('data-nav')) === '#/weight', 'combined card still opens the weight screen');
 
+  console.log('\n[7w] Waist tab: log, goal under X cm, waist ÷ height, home card');
+  check((await page.locator('#waist-bar').count()) === 1, 'home shows a waist card before any measurement');
+  await page.locator('#waist-bar').click();
+  await page.waitForSelector('.body-tab.on');
+  check(await page.evaluate(() => location.hash) === '#/waist', 'waist card opens the Waist tab');
+  check(((await page.locator('.body-tab.on').textContent()) || '').trim() === 'Waist', 'Waist tab is the selected one');
+  check(((await page.locator('.empty').textContent()) || '').includes('No measurements yet'), 'empty waist log explains itself');
+  await page.locator('#wt-add').click();
+  await page.waitForSelector('#wt-kg');
+  check(((await page.locator('.wt-kg-wrap .u').textContent()) || '').trim() === 'cm', 'waist editor is in cm');
+  await page.locator('#wt-kg').fill('91');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('#whtr-card');
+  const whtr = ((await page.locator('#whtr-card').textContent()) || '').replace(/\s+/g, ' ');
+  check(whtr.includes('0.53') && whtr.includes('Increased risk'), `91 cm at 169 cm tall reads 0.53, increased risk (${whtr.trim()})`);
+  check(whtr.includes('84.5 cm'), 'card names half of the height (84.5 cm)');
+  const wsnap = await page.evaluate(() => JSON.parse(localStorage.getItem('wt_weights_v1')));
+  check(wsnap.waist.entries.length === 1 && wsnap.waist.entries[0].cm === 91 && wsnap.entries.length === 1,
+    'waist entry saved inside the weights doc, weigh-ins untouched');
+  await page.evaluate(() => {
+    const w = JSON.parse(localStorage.getItem('wt_weights_v1'));
+    w.waist.targetCm = 84.5;
+    localStorage.setItem('wt_weights_v1', JSON.stringify(w));
+  });
+  await page.reload();
+  await page.waitForSelector('#whtr-card');
+  check(((await page.locator('#whtr-card').textContent()) || '').includes('6.5 cm to go'), 'waist tab shows cm to the goal');
+  check(((await page.locator('.topbar').textContent()) || '').includes('goal under 84.5 cm'), 'header names the under-goal');
+  await page.locator('#wt-add').click();
+  await page.waitForSelector('#wt-kg');
+  await page.locator('#wt-kg').fill('84.5');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('.wchart');
+  check(((await page.locator('#whtr-card').textContent()) || '').includes('Increased risk'), 'exactly 84.5 cm is not yet under the goal (0.50)');
+  await page.locator('.wt-row').first().click();
+  await page.waitForSelector('#wt-del');
+  await page.locator('#wt-kg').fill('84.4');
+  await page.locator('#wt-save').click();
+  await page.waitForSelector('#whtr-card');
+  const reachedTxt = ((await page.locator('#whtr-card').textContent()) || '').replace(/\s+/g, ' ');
+  check(reachedTxt.includes('0.49') && reachedTxt.includes('Healthy') && reachedTxt.includes('reached'), `84.4 cm reads 0.49, healthy, goal reached (${reachedTxt.trim()})`);
+  // tab switch replaces the history entry: Back from either tab goes home
+  await page.locator('.body-tab[data-body="weight"]').click();
+  await page.waitForFunction(() => location.hash === '#/weight');
+  check(((await page.locator('.topbar').textContent()) || '').includes('Weight'), 'Weight tab shows the weight log');
+  check((await page.locator('#whtr-card').count()) === 0, 'waist ÷ height card only on the Waist tab');
+  await page.goBack();
+  await page.waitForFunction(() => location.hash === '#/' || location.hash === '');
+  check(true, 'Back from a switched tab lands on home');
+  await page.waitForSelector('#waist-bar');
+  const wcard = ((await page.locator('#waist-bar').textContent()) || '').replace(/\s+/g, ' ');
+  check(wcard.includes('84.4') && wcard.includes('under 84.5') && wcard.includes('goal reached') && wcard.includes('0.49'),
+    `home waist card: cm, goal, status, ratio (${wcard.trim()})`);
+  check((await page.locator('#waist-bar .mbar-fill').getAttribute('style') || '').includes('100%'), 'home waist bar full at the goal');
+
   console.log('\n[7y] Cardio-only plans stay out of the up-next queue');
   const upNext = await page.evaluate(() => {
     const plans = JSON.parse(localStorage.getItem('wt_plans_v1'));
