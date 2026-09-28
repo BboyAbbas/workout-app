@@ -22,13 +22,16 @@ holds one shared JSON copy so the same data follows you across devices.
 - **Plank Trainer** — its own section under the cardio plan (see below).
 - **Interval Trainer** — timed intervals (Norwegian 4×4, sprints, Tabata, 10×1, custom) under "Trainers", or as a finisher from a live workout (see below).
 - **Weight** — weigh-in log, chart with a target line, and progress against a
-  goal with a countdown.
+  goal with a countdown. The chart follows aktiBMI: up to 90 days it plots one
+  point per day (that day's last weigh-in); Year and All plot one point per
+  calendar month (that month's last weigh-in), over shaded day/month/quarter/year
+  bands with a dotted "Target" line.
 - **Waist** — a second tab on the weight screen: waist log in cm, chart with the
   goal line, and a "goal under X cm" that counts as reached only below X. Shows
   waist ÷ height against the NICE bands (under 0.50 healthy, 0.50–0.59 increased
   risk, 0.60+ high risk); height is stored once in the weights doc (`heightCm`).
   Waist entries live in the same doc (`weights.waist`) and merge offline logs on
-  sync like weigh-ins. Home shows a waist card with cm to go.
+  sync like weigh-ins.
 - **History & insights** — every workout with per-set detail, records, stalls,
   muscle split, and a consistency heatmap.
 - Works fully offline (service worker app shell).

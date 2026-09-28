@@ -875,11 +875,14 @@ function check(cond, msg) {
   check((await page.locator('.cal .cal-cell').count()) >= 7, 'consistency heatmap renders at the bottom of home');
   check((await page.locator('#weight-bar').getAttribute('data-nav')) === '#/weight', 'combined card still opens the weight screen');
 
-  console.log('\n[7w] Waist tab: log, goal under X cm, waist ÷ height, home card');
-  check((await page.locator('#waist-bar').count()) === 1, 'home shows a waist card before any measurement');
-  await page.locator('#waist-bar').click();
+  console.log('\n[7w] Waist tab: log, goal under X cm, waist ÷ height');
+  check((await page.locator('#waist-bar').count()) === 0, 'home has no waist card — the weight card is the one door');
+  await page.locator('#weight-bar').click();
+  await page.waitForSelector('.body-tab[data-body="waist"]');
+  await page.locator('.body-tab[data-body="waist"]').click();
+  await page.waitForFunction(() => location.hash === '#/waist');
   await page.waitForSelector('.body-tab.on');
-  check(await page.evaluate(() => location.hash) === '#/waist', 'waist card opens the Waist tab');
+  check(await page.evaluate(() => location.hash) === '#/waist', 'Waist tab opens from the weight screen');
   check(((await page.locator('.body-tab.on').textContent()) || '').trim() === 'Waist', 'Waist tab is the selected one');
   check(((await page.locator('.empty').textContent()) || '').includes('No measurements yet'), 'empty waist log explains itself');
   await page.locator('#wt-add').click();
@@ -923,12 +926,40 @@ function check(cond, msg) {
   check((await page.locator('#whtr-card').count()) === 0, 'waist ÷ height card only on the Waist tab');
   await page.goBack();
   await page.waitForFunction(() => location.hash === '#/' || location.hash === '');
-  check(true, 'Back from a switched tab lands on home');
-  await page.waitForSelector('#waist-bar');
-  const wcard = ((await page.locator('#waist-bar').textContent()) || '').replace(/\s+/g, ' ');
-  check(wcard.includes('84.4') && wcard.includes('under 84.5') && wcard.includes('goal reached') && wcard.includes('0.49'),
-    `home waist card: cm, goal, status, ratio (${wcard.trim()})`);
-  check((await page.locator('#waist-bar .mbar-fill').getAttribute('style') || '').includes('100%'), 'home waist bar full at the goal');
+  check(true, 'Back from switched tabs lands on home');
+
+  console.log('\n[7v] Chart grouping (aktiBMI): one point per day up to 90 days, per month beyond');
+  await page.evaluate(() => {
+    const D = 86400000, now = Date.now(), e = [];
+    // 3 years of weigh-ins, three a day (morning, noon, night) -> daily and monthly buckets
+    for (let d = 3 * 365; d >= 1; d--) for (const h of [7, 12, 21]) {
+      const t = new Date(now - d * D); t.setHours(h, 0, 0, 0);
+      e.push({ id: `g${d}_${h}`, t: t.getTime(), kg: h === 21 ? 71 : 70, note: '' });
+    }
+    localStorage.setItem('wt_weights_v1', JSON.stringify({ entries: e, targetKg: 64, heightCm: 169 }));
+  });
+  await page.goto(BASE + '/#/weight');
+  await page.waitForSelector('.wchart');
+  const monthsInAll = await page.evaluate(() => {
+    const e = JSON.parse(localStorage.getItem('wt_weights_v1')).entries;
+    return new Set(e.map((x) => { const d = new Date(x.t); return d.getFullYear() * 12 + d.getMonth(); })).size;
+  });
+  await page.locator('[data-range="all"]').click(); await page.waitForTimeout(200);
+  check((await page.locator('.wchart circle').count()) === monthsInAll, `All: one point per month (${monthsInAll})`);
+  await page.locator('[data-range="year"]').click(); await page.waitForTimeout(200);
+  const yearPts = await page.locator('.wchart circle').count();
+  check(yearPts >= 12 && yearPts <= 13, `Year: one point per month of the last 12 (${yearPts})`);
+  await page.locator('[data-range="30"]').click(); await page.waitForTimeout(200);
+  const d30 = await page.locator('.wchart circle').count();
+  check(d30 >= 29 && d30 <= 31, `30 Days: one point per day, not three (${d30})`);
+  const lastOfDay = await page.evaluate(() => {
+    const cy = [...document.querySelectorAll('.wchart circle')].map((c) => c.getAttribute('cy'));
+    return cy.every((v) => v === cy[0]);
+  });
+  check(lastOfDay, "each day's point is its LAST weigh-in (all at the night value)");
+  check((await page.locator('.wchart text').filter({ hasText: 'Target' }).count()) === 1, 'target line carries a "Target" label');
+  await page.goto(BASE + '/#/');
+  await page.waitForSelector('#weight-bar');
 
   console.log('\n[7y] Cardio-only plans stay out of the up-next queue');
   const upNext = await page.evaluate(() => {

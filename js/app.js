@@ -285,41 +285,6 @@ function screenHome() {
     </div>`;
   }
 
-  // waist card: latest cm, the under-this goal, cm to go, waist ÷ height — taps to the Waist tab
-  const waist = DB.getWaist();
-  const wz = waist.entries[waist.entries.length - 1];
-  let waistBar;
-  if (wz) {
-    const tgt = waist.targetCm;
-    const ratio = DB.waistToHeight(wz.cm, wts.heightCm);
-    const first = waist.entries[0].cm;
-    const reached = tgt != null && wz.cm < tgt;
-    const pct = tgt == null ? 0 : first > tgt ? Math.max(0, Math.min(100, ((first - wz.cm) / (first - tgt)) * 100)) : reached ? 100 : 0;
-    const left = tgt == null ? 'tap 🎯 to set a goal'
-      : reached ? 'goal reached 💪' : `${fmtKg(Math.max(0.1, wz.cm - tgt))} cm to go`;
-    waistBar = `
-    <div class="card tappable" id="waist-bar" data-nav="#/waist">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <div style="font-size:22px;font-weight:700">${fmtKg(wz.cm)}<span style="font-size:14px;color:var(--muted);font-weight:600"> cm waist</span></div>
-        ${tgt != null ? `<div style="font-weight:650">🎯 under ${esc(tgt)} cm</div>` : ''}
-      </div>
-      <div style="display:flex;justify-content:space-between;gap:10px;margin:2px 0 ${tgt != null ? 9 : 0}px;font-size:13px;color:var(--muted)">
-        <span>${left}</span>
-        <span style="white-space:nowrap">${ratio ? `waist ÷ height ${fmtRatio(ratio)}` : esc(fmtAgo(wz.t))}</span>
-      </div>
-      ${tgt != null ? `<div class="mbar-track" style="height:7px"><div class="mbar-fill" style="width:${pct}%"></div></div>` : ''}
-    </div>`;
-  } else {
-    waistBar = `
-    <div class="card tappable" id="waist-bar" data-nav="#/waist" style="display:flex;align-items:center;gap:12px">
-      <div style="flex:1">
-        <p class="name" style="margin:0 0 2px;font-weight:650">📏 Waist</p>
-        <p class="desc" style="margin:0;color:var(--muted)">Track your waist and waist ÷ height</p>
-      </div>
-      <div style="color:var(--muted)">${icons.chart}</div>
-    </div>`;
-  }
-
   mount(`
     ${topbar('Workouts', {
       sub: plans.length ? `${plans.length} plan${plans.length > 1 ? 's' : ''}` : '',
@@ -331,7 +296,6 @@ function screenHome() {
     <main class="screen">
       ${resumeBar}
       ${weightBar}
-      ${waistBar}
       ${body}
       ${consistencyBlock(DB.getSessions(), DB.getIntervalSessions())}
     </main>
@@ -1607,65 +1571,143 @@ function whtrBand(r) { // NICE NG246 central-adiposity bands
   return { cls: 'z-ok', label: d >= 0.4 ? 'Healthy' : 'Under 0.40' };
 }
 
-/* Line chart with y-gridlines, x time labels and a dashed target line.
-   Tapping the chart selects the nearest entry (selectedId) and shows an
-   aktiBMI-style callout with date and value. */
-function bodyChart(entries, target, selectedId, unit, noun) {
-  if (entries.length < 2) return `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">Log two ${noun}s and the chart appears.</p>`;
-  const w = 340, h = 190, padL = 10, padR = 34, padT = 12, padB = 22;
-  const t0 = entries[0].t, t1 = entries[entries.length - 1].t;
-  const span = Math.max(1, t1 - t0);
-  let min = Math.min(...entries.map((e) => e.v));
-  let max = Math.max(...entries.map((e) => e.v));
-  if (target != null) { min = Math.min(min, target); max = Math.max(max, target); }
-  min = Math.floor(min - 0.5); max = Math.ceil(max + 0.5);
-  const yspan = max - min || 1;
-  const X = (t) => padL + ((t - t0) / span) * (w - padL - padR);
-  const Y = (v) => padT + (1 - (v - min) / yspan) * (h - padT - padB);
+/* ---------- body chart (aktiBMI logic) ----------
+   One point per day (that day's last entry) on ranges up to 90 days; one point
+   per calendar month (that month's last entry, drawn mid-month) on longer
+   ones, so years of weigh-ins read as a calm line. The window is fixed in time
+   (the last N days, or whole calendar months for Year/All), and the line runs
+   on to the nearest point outside it, cut at the edge. */
+const DAY = 86400000;
+const monthStart = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); };
+const nextMonth = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime(); };
 
-  const step = Math.ceil(yspan / 6);
-  let grid = '', ylabels = '';
-  for (let v = min; v <= max; v += step) {
-    if (target != null && Math.abs(v - target) < step / 2) continue; // target label owns that row
-    grid += `<line x1="${padL}" y1="${Y(v)}" x2="${w - padR}" y2="${Y(v)}" stroke="var(--border)" stroke-width="1"/>`;
-    ylabels += `<text x="${w - padR + 5}" y="${Y(v) + 3.5}" font-size="10" fill="var(--muted)">${v}</text>`;
+/** One point per bucket — the bucket's last entry — drawn at x = at(entry). */
+function lastPer(entries, key, at) {
+  const out = [];
+  let k0 = null;
+  for (const e of entries) {
+    const k = key(e.t), p = { ...e, x: at(e) };
+    if (k === k0) out[out.length - 1] = p; else out.push(p);
+    k0 = k;
   }
-  const spanDays = span / 86400000;
-  const fmtX = (t) => {
-    const d = new Date(t);
-    if (spanDays > 700) return String(d.getFullYear());
-    if (spanDays > 60) return d.toLocaleDateString(undefined, { month: 'short' });
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  };
-  let xlabels = '';
-  for (let i = 0; i <= 3; i++) {
-    const t = t0 + (span * i) / 3;
-    xlabels += `<text x="${X(t).toFixed(1)}" y="${h - 6}" font-size="10" fill="var(--muted)" text-anchor="${i === 0 ? 'start' : i === 3 ? 'end' : 'middle'}">${fmtX(t)}</text>`;
-  }
-  const pts = entries.map((e) => `${X(e.t).toFixed(1)},${Y(e.v).toFixed(1)}`);
-  // nodes on every range: thin dense ranges so dots stay readable, but a tap
-  // still hits ANY entry (nearest-by-time lookup in the click handler)
-  const thin = Math.max(1, Math.ceil(entries.length / 120));
-  const dots = entries
-    .filter((e, i) => i % thin === 0 || i === entries.length - 1 || e.id === selectedId)
-    .map((e) => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.v).toFixed(1)}" r="${thin > 1 ? 2 : 2.6}" fill="var(--accent)"/>`).join('');
-  const [lx, ly] = pts[pts.length - 1].split(',');
-  const targetLine = target != null ? `
-      <line x1="${padL}" y1="${Y(target)}" x2="${w - padR}" y2="${Y(target)}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="2 5" opacity="0.85"/>
-      <text x="${w - padR + 5}" y="${Y(target) + 3.5}" font-size="10" fill="var(--accent)">${target}</text>` : '';
+  return out;
+}
 
-  // callout for the tapped node — aktiBMI-style: date + value, nothing else
+/** What the chart draws for one range: window [x0, x1], the points inside it,
+ *  the nearest point before it (the line enters from the edge), and the band unit. */
+function chartSeries(all, range, now) {
+  let x0 = range.days ? now - range.days * DAY : monthStart(all[0].t);
+  let x1 = Math.max(now, all[all.length - 1].t);
+  const monthly = range.days ? range.days > 90 : x1 - x0 > 90 * DAY;
+  if (monthly) { x0 = monthStart(x0); x1 = nextMonth(x1); }
+  const pts = monthly
+    ? lastPer(all, monthStart, (e) => (monthStart(e.t) + nextMonth(e.t)) / 2)
+    : lastPer(all, (t) => new Date(t).toDateString(), (e) => e.t);
+  const inside = pts.filter((p) => p.x >= x0 && p.x <= x1);
+  const before = pts.filter((p) => p.x < x0);
+  const spanDays = (x1 - x0) / DAY;
+  const band = spanDays <= 45 ? 'day3' : spanDays <= 130 ? 'month' : spanDays <= 800 ? 'quarter' : 'year';
+  return { x0, x1, pts: inside, prev: before.length ? before[before.length - 1] : null, band };
+}
+
+/* Alternating background bands: 3 days, months, quarters or years. The shade
+   follows the calendar (even years, even quarters…) so a band never flips
+   colour when the window moves. */
+function bandStart(unit, t) {
+  const d = new Date(t), y = d.getFullYear(), m = d.getMonth();
+  if (unit === 'year') return new Date(y, 0, 1);
+  if (unit === 'quarter') return new Date(y, m - (m % 3), 1);
+  if (unit === 'month') return new Date(y, m, 1);
+  const k = Math.floor(Date.UTC(y, m, d.getDate()) / DAY);
+  return new Date(y, m, d.getDate() - (k % 3));
+}
+function bandNext(unit, s) {
+  const y = s.getFullYear(), m = s.getMonth();
+  if (unit === 'year') return new Date(y + 1, 0, 1);
+  if (unit === 'quarter') return new Date(y, m + 3, 1);
+  if (unit === 'month') return new Date(y, m + 1, 1);
+  return new Date(y, m, s.getDate() + 3);
+}
+function bandShaded(unit, s) {
+  if (unit === 'year') return s.getFullYear() % 2 === 0;
+  if (unit === 'quarter') return (s.getMonth() / 3) % 2 === 0;
+  if (unit === 'month') return s.getMonth() % 2 === 0;
+  return Math.floor(Date.UTC(s.getFullYear(), s.getMonth(), s.getDate()) / DAY / 3) % 2 === 0;
+}
+function bandLabel(unit, s) {
+  if (unit === 'year') return String(s.getFullYear());
+  if (unit === 'quarter') return `${s.toLocaleDateString(undefined, { month: 'short' })} '${String(s.getFullYear()).slice(2)}`;
+  if (unit === 'month') return s.toLocaleDateString(undefined, { month: 'short' });
+  return `${s.getDate()}.${s.getMonth() + 1}.`;
+}
+
+function bodyChart(series, target, selectedId, unit, noun, entryCount) {
+  const msg = (t) => `<p class="desc" style="color:var(--muted);text-align:center;padding:18px 0">${t}</p>`;
+  if (entryCount < 2) return msg(`Log two ${noun}s and the chart appears.`);
+  if (!series.pts.length) return msg(`No ${noun}s in this range.`);
+  const { x0, x1, pts, prev, band } = series;
+  const w = 340, h = 200, padL = 1, padR = 30, padT = 6, padB = 22;
+  const pl = padL, pr = w - padR, pt = padT, pb = h - padB;
+  const X = (t) => pl + ((t - x0) / (x1 - x0)) * (pr - pl);
+
+  // y range: the points, where the line enters from the left edge, and the target
+  const vals = pts.map((p) => p.v);
+  if (prev) vals.push(prev.v + (pts[0].v - prev.v) * ((x0 - prev.x) / (pts[0].x - prev.x || 1)));
+  if (target != null) vals.push(target);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const step = hi - lo <= 9 ? 1 : hi - lo <= 18 ? 2 : 5;
+  const pad = Math.max(0.6, (hi - lo) * 0.08);
+  const ymin = lo - pad, ymax = hi + pad;
+  const Y = (v) => pt + (1 - (v - ymin) / (ymax - ymin)) * (pb - pt);
+
+  let bands = '', labels = [];
+  for (let s = bandStart(band, x0); s.getTime() < x1; s = bandNext(band, s)) {
+    const a = Math.max(x0, s.getTime()), b = Math.min(x1, bandNext(band, s).getTime());
+    const xa = X(a), xb = X(b);
+    if (bandShaded(band, s)) bands += `<rect x="${xa.toFixed(1)}" y="${pt}" width="${(xb - xa).toFixed(1)}" height="${pb - pt}" fill="var(--text)" opacity="0.035"/>`;
+    // days and quarters are labelled at their start, months and years in their middle
+    if (band === 'day3' || band === 'quarter') { if (s.getTime() >= x0) labels.push({ x: xa, t: bandLabel(band, s) }); }
+    else if (xb - xa >= 18) labels.push({ x: (xa + xb) / 2, t: bandLabel(band, s) });
+  }
+  let xlabels = '', lastX = -Infinity;
+  for (const l of labels) {
+    if (l.x - lastX < 28) continue;
+    lastX = l.x;
+    const anchor = l.x < pl + 12 ? 'start' : l.x > pr - 12 ? 'end' : 'middle';
+    xlabels += `<text x="${(anchor === 'start' ? pl : anchor === 'end' ? pr : l.x).toFixed(1)}" y="${h - 6}" font-size="10" fill="var(--muted)" text-anchor="${anchor}">${esc(l.t)}</text>`;
+  }
+
+  let grid = '';
+  for (let v = Math.ceil(ymin / step) * step; v <= ymax; v += step) {
+    grid += `<line x1="${pl}" y1="${Y(v).toFixed(1)}" x2="${pr}" y2="${Y(v).toFixed(1)}" stroke="var(--accent)" stroke-opacity="0.16" stroke-width="1"/>`
+      + `<text x="${pr + 5}" y="${(Y(v) + 3.5).toFixed(1)}" font-size="10" fill="var(--muted)">${v}</text>`;
+  }
+
+  // target: a row of dots with a "Target" pill near the left
+  let targetEl = '';
+  if (target != null) {
+    const ty = Y(target).toFixed(1), px = pl + (pr - pl) * 0.1;
+    targetEl = `
+      <line x1="${pl + 4}" y1="${ty}" x2="${pr - 4}" y2="${ty}" stroke="var(--accent)" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="0 10"/>
+      <rect x="${px.toFixed(1)}" y="${(+ty - 8).toFixed(1)}" width="46" height="16" rx="8" fill="var(--surface)"/>
+      <rect x="${px.toFixed(1)}" y="${(+ty - 8).toFixed(1)}" width="46" height="16" rx="8" fill="var(--accent)" opacity="0.32"/>
+      <text x="${(px + 23).toFixed(1)}" y="${(+ty + 3.5).toFixed(1)}" font-size="10" font-weight="600" fill="var(--text)" text-anchor="middle">Target</text>`;
+  }
+
+  const line = (prev ? [prev, ...pts] : pts).map((p) => `${X(p.x).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ');
+  const dots = pts.map((p) => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="4" fill="var(--surface)" stroke="var(--accent)" stroke-width="2.2"/>`).join('');
+
+  // callout for the tapped point — aktiBMI-style: date + value, nothing else
   let callout = '';
-  const sel = selectedId ? entries.find((e) => e.id === selectedId) : null;
+  const sel = selectedId ? pts.find((p) => p.id === selectedId) : null;
   if (sel) {
-    const cx = X(sel.t), cy = Y(sel.v);
+    const cx = X(sel.x), cy = Y(sel.v);
     const dateTxt = new Date(sel.t).toLocaleDateString(undefined, { day: 'numeric', month: 'numeric', year: '2-digit' });
     const valTxt = `${fmtKg(sel.v)}${unit}`;
     const bw = Math.max(dateTxt.length * 5.4, valTxt.length * 7.4) + 18;
     const bh = 37;
-    const bx = Math.min(Math.max(cx - bw / 2, 2), w - padR - bw + 26);
-    const above = cy > bh + 16;
-    const by = above ? cy - bh - 11 : cy + 11;
+    const bx = Math.min(Math.max(cx - bw / 2, 2), pr - bw);
+    const by = cy > bh + 16 ? cy - bh - 11 : cy + 11;
     callout = `
       <g class="wt-callout" pointer-events="none">
         <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
@@ -1676,11 +1718,15 @@ function bodyChart(entries, target, selectedId, unit, noun) {
   }
   return `
     <svg class="wchart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(noun)} chart"
-         data-t0="${t0}" data-span="${span}" data-w="${w}" data-padl="${padL}" data-padr="${padR}">
-      ${grid}${ylabels}${xlabels}${targetLine}
-      <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(' ')}"/>
-      ${dots}
-      <circle cx="${lx}" cy="${ly}" r="3.5" fill="var(--accent)"/>
+         data-t0="${x0}" data-span="${x1 - x0}" data-w="${w}" data-padl="${padL}" data-padr="${padR}">
+      <defs><clipPath id="wchart-clip"><rect x="${pl}" y="${pt}" width="${pr - pl}" height="${pb - pt}"/></clipPath></defs>
+      ${bands}${grid}${xlabels}
+      <rect x="${pl}" y="${pt}" width="${pr - pl}" height="${pb - pt}" fill="none" stroke="var(--border)" stroke-width="1"/>
+      ${targetEl}
+      <g clip-path="url(#wchart-clip)">
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" points="${line}"/>
+        ${dots}
+      </g>
       ${callout}
     </svg>`;
 }
@@ -1726,6 +1772,7 @@ function screenBody(metric) {
   const range = WEIGHT_RANGES.find((r) => r.key === weightRange) || WEIGHT_RANGES[4];
   const inRange = range.days ? all.filter((e) => e.t >= now - range.days * 86400000) : all;
   const latest = all.length ? all[all.length - 1] : null;
+  const series = all.length ? chartSeries(all, range, now) : null;
 
   // performance vs the interpolated value at each cutoff
   const perf = latest ? [
@@ -1787,7 +1834,7 @@ function screenBody(metric) {
       <div class="card">
         <div class="range-tabs">${WEIGHT_RANGES.map((r) =>
           `<button class="chip-tab${r.key === weightRange ? ' on' : ''}" data-range="${r.key}">${r.label}</button>`).join('')}</div>
-        ${bodyChart(inRange, target, weightSel, unit, noun)}
+        ${bodyChart(series, target, weightSel, unit, noun, all.length)}
         <div class="wt-stats">
           <div><div class="stat-l">Start</div><div class="stat-v">${start ? fmtKg(start.v) : '–'}<span class="u">${unit}</span></div></div>
           <div><div class="stat-l">Now</div><div class="stat-v">${latest ? fmtKg(latest.v) : '–'}<span class="u">${unit}</span></div></div>
@@ -1825,13 +1872,13 @@ function screenBody(metric) {
   qsa('[data-range]').forEach((b) => b.addEventListener('click', () => { weightRange = b.dataset.range; weightSel = null; again(); }));
   const chartEl = qs('.wchart');
   if (chartEl) chartEl.addEventListener('click', (ev) => {
-    // map the tap x back to a time, pick the nearest entry, toggle its callout
+    // map the tap x back to a time, pick the nearest plotted point, toggle its callout
     const rect = chartEl.getBoundingClientRect();
     const vx = ((ev.clientX - rect.left) / rect.width) * (+chartEl.dataset.w);
     const padL = +chartEl.dataset.padl, padR = +chartEl.dataset.padr;
     const t = +chartEl.dataset.t0 + ((vx - padL) / ((+chartEl.dataset.w) - padL - padR)) * (+chartEl.dataset.span);
     let best = null, bd = Infinity;
-    for (const e of inRange) { const d = Math.abs(e.t - t); if (d < bd) { bd = d; best = e; } }
+    for (const p of series.pts) { const d = Math.abs(p.x - t); if (d < bd) { bd = d; best = p; } }
     if (!best) return;
     weightSel = weightSel === best.id ? null : best.id;
     again();
