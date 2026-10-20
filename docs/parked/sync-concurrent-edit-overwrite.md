@@ -47,4 +47,4 @@ Same for workout sessions, weigh-ins, plank sets and interval sessions. The wind
 Medium: sync.js + db.js merge helpers + Worker possibly, plus a two-device test harness (the smoke test only stubs one device).
 
 ## When it goes live
-Root `C:\Users\Abbas\Downloads\Coding3\WorkoutApp`, design in Claude (Opus), build in Codex `--lane code` high.
+Root `C:\Users\Abbas\Downloads\Coding3\WorkoutApp`, design with the brain, build on the `gpt-build` seat (`codex_run.py --lane gpt-build`, orchestrator skill).
