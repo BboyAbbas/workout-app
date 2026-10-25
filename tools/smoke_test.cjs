@@ -22,7 +22,7 @@ function check(cond, msg) {
   // "No sets logged", reset's double confirm) — the flows under test expect "OK"
   page.on('dialog', (d) => d.accept());
   // never touch the real cloud-sync doc from tests (return empty, no network)
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   // capture console + page errors
@@ -719,9 +719,9 @@ function check(cond, msg) {
     localStorage.setItem('wt_updated_at', String(Date.now() - 60e3));
     localStorage.setItem('wt_pushed_at', '1'); // local change never reached the cloud
   });
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
   let mergedPush = null;
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**', (r) => {
+  await page.route('**/workout-sync.holadrive.workers.dev/**', (r) => {
     const req = r.request();
     if (req.method() === 'PUT') {
       mergedPush = JSON.parse(req.postData());
@@ -744,15 +744,15 @@ function check(cond, msg) {
   check(!!(mergedPush && mergedPush.data && (mergedPush.data.sessions || []).length === 2),
     'merged doc pushed back to the cloud');
   // restore the inert sync stub for the remaining sections
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   console.log('\n[7r] Failed first pull on an empty device must NOT auto-seed (data-wipe guard)');
   // a fresh device whose first pull errors must not seed + push defaults over
   // the real shared doc — it shows the manual "Load my workout plans" button
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: 'not-json' }));
   await page.goto(BASE + '/#/');
   await page.evaluate(() => localStorage.clear());
@@ -762,8 +762,8 @@ function check(cond, msg) {
   check((await page.locator('.plan-card').count()) === 0, 'no plans auto-seeded when the cloud pull failed');
   check((await page.locator('#seed-plans').count()) === 1, 'manual "Load my workout plans" button offered instead');
   // back to the normal stub: a confirmed-EMPTY cloud ({}) still auto-seeds
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -1118,8 +1118,8 @@ function check(cond, msg) {
   // drive the actual sync.js pull path (not just the pure merge helper): the
   // cloud doc knows a hold this device has never seen, and this device holds one
   // it never pushed. Both must exist afterwards.
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**', (r) => {
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
+  await page.route('**/workout-sync.holadrive.workers.dev/**', (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
         updatedAt: Date.now() + 600000, // remote is newer, so it gets applied
@@ -1150,8 +1150,8 @@ function check(cond, msg) {
     `offline hold kept AND cloud hold pulled in (${merged.ids.join(',')})`);
 
   // back to the inert stub so the offline check below behaves
-  await page.unroute('**/workout-sync.bboy-abbass.workers.dev/**');
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.unroute('**/workout-sync.holadrive.workers.dev/**');
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
   console.log('  · Side mode: mode, left, timestamped switch, right, balance');

@@ -15,7 +15,7 @@ const OUT = 'tools/shots';
   });
   const page = await ctx.newPage();
   page.on('dialog', (d) => d.accept());
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await page.addInitScript(() => {
     navigator.vibrate = () => true;

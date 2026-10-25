@@ -12,7 +12,7 @@
 
 import * as DB from './db.js';
 
-const ENDPOINT = 'https://workout-sync.bboy-abbass.workers.dev/state';
+const ENDPOINT = 'https://workout-sync.holadrive.workers.dev/state';
 const TOKEN = '0287ce3007c80cc07c109b8317cc541bc546912489b0b652';
 // One shared document across all of Abbas's devices. Overridable for testing.
 const USER_ID = localStorage.getItem('wt_sync_id') || 'abbas-main';

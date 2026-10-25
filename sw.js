@@ -2,7 +2,7 @@
    Strategy: NETWORK-FIRST for same-origin GETs. Online -> newest files win
    (no more stale-cache surprises while iterating). Offline -> fall back to the
    cached copy. Bump CACHE on release to drop the old precache. */
-const CACHE = 'workout-v60';
+const CACHE = 'workout-v61';
 const SHELL = [
   './',
   'index.html',
@@ -21,7 +21,7 @@ const SHELL = [
 
 /* Web Push message lookup (the push is payload-less; the text is fetched here).
    The service worker can't read localStorage, so the sync id is the device default. */
-const PUSH_BASE = 'https://workout-sync.bboy-abbass.workers.dev';
+const PUSH_BASE = 'https://workout-sync.holadrive.workers.dev';
 const PUSH_TOKEN = '0287ce3007c80cc07c109b8317cc541bc546912489b0b652';
 const PUSH_USER = 'abbas-main';
 

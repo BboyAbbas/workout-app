@@ -10,7 +10,7 @@ const fs = require('fs');
     viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
     deviceScaleFactor: 2,
   })).newPage();
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   // accept the app's confirms (e.g. finish-without-cardio nudge) like smoke_test does
   page.on('dialog', (d) => d.accept());

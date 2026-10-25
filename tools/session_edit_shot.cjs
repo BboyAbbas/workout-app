@@ -10,7 +10,7 @@ const OUT = process.argv[2] || '.';
   const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
   page.on('dialog', (d) => d.accept());
-  await page.route('**/workout-sync.bboy-abbass.workers.dev/**',
+  await page.route('**/workout-sync.holadrive.workers.dev/**',
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
   await page.addInitScript(() => { try { localStorage.setItem('wt_sync_id', 'shots'); } catch (_) {} });
 

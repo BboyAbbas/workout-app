@@ -10,7 +10,7 @@
    can never break a workout.
    ============================================================ */
 
-const BASE = 'https://workout-sync.bboy-abbass.workers.dev';
+const BASE = 'https://workout-sync.holadrive.workers.dev';
 const TOKEN = '0287ce3007c80cc07c109b8317cc541bc546912489b0b652';
 const USER_ID = localStorage.getItem('wt_sync_id') || 'abbas-main';
 // VAPID application server public key (uncompressed P-256 point, base64url).

@@ -14,7 +14,7 @@
    (the same shape `get` returns under .data). updatedAt is set to now so the
    app treats it as the newest version and pulls it. */
 
-const ENDPOINT = 'https://workout-sync.bboy-abbass.workers.dev/state';
+const ENDPOINT = 'https://workout-sync.holadrive.workers.dev/state';
 const TOKEN = '0287ce3007c80cc07c109b8317cc541bc546912489b0b652';
 const ID = process.env.WT_SYNC_ID || 'abbas-main';
 const url = `${ENDPOINT}?id=${encodeURIComponent(ID)}`;
